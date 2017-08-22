@@ -47,11 +47,11 @@ HPARAMS = {
   "batch_size": 128
 }
 
-def get_hparams():
+def params():
   """Aggregates and returns hyper parameters."""
   hparams = HPARAMS
-  hparams.update(DATASETS[FLAGS.dataset].HPARAMS)
-  hparams.update(MODELS[FLAGS.model].HPARAMS)
+  hparams.update(DATASETS[FLAGS.dataset].params())
+  hparams.update(MODELS[FLAGS.model].params())
 
   hparams = tf.contrib.training.HParams(**hparams)
   hparams.parse(FLAGS.hparams)
@@ -63,11 +63,11 @@ def make_input_fn(mode, params):
   """Returns an input function to read the dataset."""
   def _input_fn():
     with tf.device(tf.DeviceSpec(device_type="CPU", device_index=0)):
-      dataset = DATASETS[FLAGS.dataset].create(mode)
+      dataset = DATASETS[FLAGS.dataset].read(mode)
       if mode == learn.ModeKeys.TRAIN:
         dataset = dataset.repeat(FLAGS.num_epochs)
         dataset = dataset.shuffle(params.batch_size * 5)
-      dataset = dataset.map(DATASETS[FLAGS.dataset].parser_fn, num_threads=8)
+      dataset = dataset.map(DATASETS[FLAGS.dataset].parse, num_threads=8)
       dataset = dataset.batch(params.batch_size)
       iterator = dataset.make_one_shot_iterator()
       features, labels = iterator.get_next()
@@ -78,7 +78,7 @@ def make_input_fn(mode, params):
 def make_model_fn():
   """Returns a model function."""
   def _model_fn(features, labels, mode, params):
-    model_fn = MODELS[FLAGS.model].model_fn
+    model_fn = MODELS[FLAGS.model].model
 
     global_step = tf.train.get_or_create_global_step()
 
@@ -145,12 +145,11 @@ def experiment_fn(run_config, hparams):
   """Constructs an experiment object."""
   estimator = learn.Estimator(
     model_fn=make_model_fn(), config=run_config, params=hparams)
-  eval_metrics = MODELS[FLAGS.model].eval_metrics_fn(hparams)
   return learn.Experiment(
     estimator=estimator,
     train_input_fn=make_input_fn(learn.ModeKeys.TRAIN, hparams),
     eval_input_fn=make_input_fn(learn.ModeKeys.EVAL, hparams),
-    eval_metrics=eval_metrics,
+    eval_metrics=MODELS[FLAGS.model].eval_metrics(hparams),
     eval_steps=FLAGS.eval_steps,
     min_eval_frequency=FLAGS.eval_frequency)
 
@@ -161,6 +160,9 @@ def main(unused_argv):
     model_dir = FLAGS.output_dir
   else:
     model_dir = "output/%s_%s" % (FLAGS.model, FLAGS.dataset)
+
+  DATASETS[FLAGS.dataset].prepare()
+
   session_config = tf.ConfigProto()
   session_config.allow_soft_placement = True
   session_config.gpu_options.allow_growth = True
@@ -175,7 +177,7 @@ def main(unused_argv):
     experiment_fn=experiment_fn,
     run_config=run_config,
     schedule=FLAGS.schedule,
-    hparams=get_hparams())
+    hparams=params())
 
 
 if __name__ == "__main__":

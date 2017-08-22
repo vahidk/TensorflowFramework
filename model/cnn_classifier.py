@@ -12,12 +12,13 @@ from common import summary
 
 FLAGS = tf.flags.FLAGS
 
-HPARAMS = {
-  "drop_rate": 0.5
-}
+def params():
+  return {
+    "drop_rate": 0.5
+  }
 
 
-def model_fn(features, labels, mode, params):
+def model(features, labels, mode, params):
   """CNN classifier model."""
   images = features["image"]
   labels = labels["label"]
@@ -47,8 +48,8 @@ def model_fn(features, labels, mode, params):
   return {"predictions": predictions}, loss
 
 
-def eval_metrics_fn(params):
+def eval_metrics(params):
   """Eval metrics."""
-  metrics_dict = {}
-  metrics_dict["accuracy"] = tf.contrib.learn.MetricSpec(tf.metrics.accuracy)
-  return metrics_dict
+  return {
+    "accuracy": tf.contrib.learn.MetricSpec(tf.metrics.accuracy)
+  }
