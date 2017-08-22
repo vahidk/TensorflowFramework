@@ -14,7 +14,7 @@ pip install tensorflow numpy pillow matplotlib six
 ## Training
 To train an mnist classification model run:
 ```
-python -m main --model=cnn_classifier --dataset=mnist
+python -m trainer --model=cnn_classifier --dataset=mnist
 ```
 
 To visualize the training logs on Tensorboard run:

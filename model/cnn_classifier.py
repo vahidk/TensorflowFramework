@@ -12,7 +12,7 @@ from common import summary
 
 FLAGS = tf.flags.FLAGS
 
-def params():
+def get_params():
   return {
     "drop_rate": 0.5
   }

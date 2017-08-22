@@ -27,7 +27,7 @@ IMAGE_SIZE = 32
 NUM_CLASSES = 100
 
 
-def params():
+def get_params():
   """Return dataset parameters."""
   return {
     "image_size": IMAGE_SIZE,

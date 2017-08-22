@@ -1,4 +1,10 @@
-"""Main module."""
+"""This module handles training and evaluation of a neural network model.
+
+Invoke the following command to train the model:
+python -m trainer --model=cnn_classifier --dataset=mnist
+
+You can then monitor the logs on Tensorboard:
+tensorboard --logdir=output"""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -47,11 +53,11 @@ HPARAMS = {
   "batch_size": 128
 }
 
-def params():
+def get_params():
   """Aggregates and returns hyper parameters."""
   hparams = HPARAMS
-  hparams.update(DATASETS[FLAGS.dataset].params())
-  hparams.update(MODELS[FLAGS.model].params())
+  hparams.update(DATASETS[FLAGS.dataset].get_params())
+  hparams.update(MODELS[FLAGS.model].get_params())
 
   hparams = tf.contrib.training.HParams(**hparams)
   hparams.parse(FLAGS.hparams)
@@ -173,11 +179,11 @@ def main(unused_argv):
     save_checkpoints_secs=None,
     session_config=session_config)
 
-  estimator = learn.learn_runner.run(
+  learn.learn_runner.run(
     experiment_fn=experiment_fn,
     run_config=run_config,
     schedule=FLAGS.schedule,
-    hparams=params())
+    hparams=get_params())
 
 
 if __name__ == "__main__":
