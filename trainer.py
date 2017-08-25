@@ -13,6 +13,7 @@ from __future__ import print_function
 import collections
 import tensorflow as tf
 
+from common import hooks
 from common import ops
 import dataset.cifar10
 import dataset.cifar100
@@ -26,11 +27,11 @@ tf.flags.DEFINE_string("dataset", "mnist", "Dataset name.")
 tf.flags.DEFINE_string("output_dir", "", "Optional output dir.")
 tf.flags.DEFINE_string("schedule", "train_and_evaluate", "Schedule.")
 tf.flags.DEFINE_string("hparams", "", "Hyper parameters.")
-tf.flags.DEFINE_integer("num_epochs", 100, "Number of training epochs.")
-tf.flags.DEFINE_integer("save_summary_steps", 10, "Summary steps.")
-tf.flags.DEFINE_integer("save_checkpoints_steps", 10, "Checkpoint steps.")
+tf.flags.DEFINE_integer("num_epochs", None, "Number of training epochs.")
+tf.flags.DEFINE_integer("save_summary_steps", 100, "Summary steps.")
+tf.flags.DEFINE_integer("save_checkpoints_steps", 200, "Checkpoint steps.")
 tf.flags.DEFINE_integer("eval_steps", None, "Number of eval steps.")
-tf.flags.DEFINE_integer("eval_frequency", 10, "Eval frequency.")
+tf.flags.DEFINE_integer("eval_frequency", 1, "Eval frequency.")
 tf.flags.DEFINE_integer("num_gpus", 0, "Numner of gpus.")
 
 FLAGS = tf.flags.FLAGS
@@ -50,7 +51,7 @@ HPARAMS = {
   "optimizer": "Adam",
   "learning_rate": 0.001,
   "decay_steps": 10000,
-  "batch_size": 128
+  "batch_size": 1024
 }
 
 def get_params():
@@ -70,6 +71,7 @@ def make_input_fn(mode, params):
   def _input_fn():
     with tf.device(tf.DeviceSpec(device_type="CPU", device_index=0)):
       dataset = DATASETS[FLAGS.dataset].read(mode)
+      dataset = dataset.cache()
       if mode == learn.ModeKeys.TRAIN:
         dataset = dataset.repeat(FLAGS.num_epochs)
         dataset = dataset.shuffle(params.batch_size * 5)
@@ -151,13 +153,17 @@ def experiment_fn(run_config, hparams):
   """Constructs an experiment object."""
   estimator = learn.Estimator(
     model_fn=make_model_fn(), config=run_config, params=hparams)
-  return learn.Experiment(
+  train_hooks = [
+    hooks.ExamplesPerSecondHook(hparams.batch_size, FLAGS.save_summary_steps)]
+  experiment = learn.Experiment(
     estimator=estimator,
     train_input_fn=make_input_fn(learn.ModeKeys.TRAIN, hparams),
     eval_input_fn=make_input_fn(learn.ModeKeys.EVAL, hparams),
     eval_metrics=MODELS[FLAGS.model].eval_metrics(hparams),
     eval_steps=FLAGS.eval_steps,
     min_eval_frequency=FLAGS.eval_frequency)
+  experiment.extend_train_hooks(train_hooks)
+  return experiment
 
 
 def main(unused_argv):
