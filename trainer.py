@@ -35,7 +35,6 @@ tf.flags.DEFINE_integer("eval_frequency", 1, "Eval frequency.")
 tf.flags.DEFINE_integer("num_gpus", 0, "Numner of gpus.")
 
 FLAGS = tf.flags.FLAGS
-learn = tf.contrib.learn
 
 MODELS = {
   "cnn_classifier": model.cnn_classifier
@@ -72,7 +71,7 @@ def make_input_fn(mode, params):
     with tf.device(tf.DeviceSpec(device_type="CPU", device_index=0)):
       dataset = DATASETS[FLAGS.dataset].read(mode)
       dataset = dataset.cache()
-      if mode == learn.ModeKeys.TRAIN:
+      if mode == tf.estimator.ModeKeys.TRAIN:
         dataset = dataset.repeat(FLAGS.num_epochs)
         dataset = dataset.shuffle(params.batch_size * 5)
       dataset = dataset.map(DATASETS[FLAGS.dataset].parse, num_threads=8)
@@ -90,7 +89,7 @@ def make_model_fn():
 
     global_step = tf.train.get_or_create_global_step()
 
-    if FLAGS.num_gpus > 0 and mode == learn.ModeKeys.TRAIN:
+    if FLAGS.num_gpus > 0 and mode == tf.estimator.ModeKeys.TRAIN:
       split_features = {k: tf.split(v, FLAGS.num_gpus)
                         for k, v in features.iteritems()}
       split_labels = {k: tf.split(v, FLAGS.num_gpus)
@@ -109,7 +108,7 @@ def make_model_fn():
               device_features = {k: v[i] for k, v in split_features.iteritems()}
               device_labels = {k: v[i] for k, v in split_labels.iteritems()}
 
-              device_predictions, device_loss = model_fn(
+              device_predictions, device_loss, metrics = model_fn(
                 device_features, device_labels, mode, params)
 
               for k, v in device_predictions.iteritems():
@@ -130,36 +129,36 @@ def make_model_fn():
       loss = tf.add_n(losses) if losses else None
     else:
       with tf.device(tf.DeviceSpec(device_type="GPU", device_index=0)):
-        predictions, loss = model_fn(features, labels, mode, params)
+        predictions, loss, metrics = model_fn(features, labels, mode, params)
 
         train_op = None
-        if mode == learn.ModeKeys.TRAIN:
+        if mode == tf.estimator.ModeKeys.TRAIN:
           opt = ops.create_optimizer(
             params.optimizer, params.learning_rate, params.decay_steps)
           train_op = opt.minimize(loss, global_step=global_step)
 
     tf.summary.scalar("loss/loss", loss)
 
-    return tf.contrib.learn.ModelFnOps(
+    return tf.estimator.EstimatorSpec(
       mode=mode,
       predictions=predictions,
       loss=loss,
-      train_op=train_op)
+      train_op=train_op,
+      eval_metric_ops=metrics)
 
   return _model_fn
 
 
 def experiment_fn(run_config, hparams):
   """Constructs an experiment object."""
-  estimator = learn.Estimator(
+  estimator = tf.estimator.Estimator(
     model_fn=make_model_fn(), config=run_config, params=hparams)
   train_hooks = [
     hooks.ExamplesPerSecondHook(hparams.batch_size, FLAGS.save_summary_steps)]
-  experiment = learn.Experiment(
+  experiment = tf.contrib.learn.Experiment(
     estimator=estimator,
-    train_input_fn=make_input_fn(learn.ModeKeys.TRAIN, hparams),
-    eval_input_fn=make_input_fn(learn.ModeKeys.EVAL, hparams),
-    eval_metrics=MODELS[FLAGS.model].eval_metrics(hparams),
+    train_input_fn=make_input_fn(tf.estimator.ModeKeys.TRAIN, hparams),
+    eval_input_fn=make_input_fn(tf.estimator.ModeKeys.EVAL, hparams),
     eval_steps=FLAGS.eval_steps,
     min_eval_frequency=FLAGS.eval_frequency)
   experiment.extend_train_hooks(train_hooks)
@@ -178,14 +177,14 @@ def main(unused_argv):
   session_config = tf.ConfigProto()
   session_config.allow_soft_placement = True
   session_config.gpu_options.allow_growth = True
-  run_config = learn.RunConfig(
+  run_config = tf.contrib.learn.RunConfig(
     model_dir=model_dir,
     save_summary_steps=FLAGS.save_summary_steps,
     save_checkpoints_steps=FLAGS.save_checkpoints_steps,
     save_checkpoints_secs=None,
     session_config=session_config)
 
-  learn.learn_runner.run(
+  tf.contrib.learn.learn_runner.run(
     experiment_fn=experiment_fn,
     run_config=run_config,
     schedule=FLAGS.schedule,

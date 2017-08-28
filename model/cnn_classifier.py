@@ -45,11 +45,8 @@ def model(features, labels, mode, params):
 
   summary.labeled_image("images", images, predictions)
 
-  return {"predictions": predictions}, loss
-
-
-def eval_metrics(params):
-  """Eval metrics."""
-  return {
-    "accuracy": tf.contrib.learn.MetricSpec(tf.metrics.accuracy)
+  metrics = {
+    "accuracy": tf.metrics.accuracy(labels, predictions)
   }
+
+  return {"predictions": predictions}, loss, metrics
