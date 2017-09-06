@@ -199,17 +199,10 @@ def merge(tensors, units, activation=tf.nn.relu, name=None, **kwargs):
   return result
 
 
-def softmax(logits, dims=-1):
-  """Compute softmax over specified dimensions."""
-  exp = tf.exp(logits - tf.reduce_max(logits, dims, keep_dims=True))
-  return exp / tf.reduce_sum(exp, dims, keep_dims=True)
-
-
-def entropy(logits, dims=-1):
-  """Compute entropy over specified dimensions."""
-  probs = softmax(logits, dims)
-  nplogp = probs * (tf.reduce_logsumexp(logits, dims, keep_dims=True) - logits)
-  return tf.reduce_sum(nplogp, dims)
+def softmax_entropy(logits, dim=-1):
+  """Compute softmax entropy from logits."""
+  plogp = tf.nn.softmax(logits, dim) * tf.nn.log_softmax(logits, dim)
+  return -tf.reduce_sum(plogp, dim)
 
 
 def create_optimizer(optimizer, learning_rate, decay_steps=None, **kwargs):

@@ -154,7 +154,17 @@ def experiment_fn(run_config, hparams):
   estimator = tf.estimator.Estimator(
     model_fn=make_model_fn(), config=run_config, params=hparams)
   train_hooks = [
-    hooks.ExamplesPerSecondHook(hparams.batch_size, FLAGS.save_summary_steps)]
+    hooks.ExamplesPerSecondHook(
+      batch_size=hparams.batch_size, 
+      every_n_iter=FLAGS.save_summary_steps),
+    hooks.LoggingTensorHook(
+      collection="batch_logging",
+      every_n_iter=FLAGS.save_summary_steps,
+      batch=True),
+    hooks.LoggingTensorHook(
+      collection="logging",
+      every_n_iter=FLAGS.save_summary_steps,
+      batch=False)]
   experiment = tf.contrib.learn.Experiment(
     estimator=estimator,
     train_input_fn=make_input_fn(tf.estimator.ModeKeys.TRAIN, hparams),

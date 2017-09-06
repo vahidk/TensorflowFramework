@@ -49,4 +49,9 @@ def model(features, labels, mode, params):
     "accuracy": tf.metrics.accuracy(labels, predictions)
   }
 
+  tf.add_to_collection(
+    "batch_logging", tf.identity(labels, name="labels"))
+  tf.add_to_collection(
+    "batch_logging", tf.identity(predictions, name="predictions"))
+
   return {"predictions": predictions}, loss, metrics
