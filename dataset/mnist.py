@@ -42,16 +42,16 @@ def prepare():
             urllib.request.urlretrieve(REMOTE_URL + name, LOCAL_DIR + name)
 
 
-def read(split):
+def read(mode):
     """Create an instance of the dataset object."""
     image_urls = {
         tf.estimator.ModeKeys.TRAIN: TRAIN_IMAGE_URL,
         tf.estimator.ModeKeys.EVAL: TEST_IMAGE_URL
-    }[split]
+    }[mode]
     label_urls = {
         tf.estimator.ModeKeys.TRAIN: TRAIN_LABEL_URL,
         tf.estimator.ModeKeys.EVAL: TEST_LABEL_URL
-    }[split]
+    }[mode]
 
     with gzip.open(LOCAL_DIR + image_urls, "rb") as f:
         magic, num, rows, cols = struct.unpack(">IIII", f.read(16))
@@ -67,8 +67,9 @@ def read(split):
     return tf.contrib.data.Dataset.from_tensor_slices((images, labels))
 
 
-def parse(image, label):
+def parse(mode, image, label):
     """Parse input record to features and labels."""
-    image = tf.to_float(image) / 255.0
+    image = tf.to_float(image)
     label = tf.to_int64(label)
+    image = tf.image.per_image_standardization(image)
     return {"image": image}, {"label": label}

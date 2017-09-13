@@ -7,6 +7,7 @@ from __future__ import print_function
 import numpy as np
 import tensorflow as tf
 
+from common import metrics
 from common import ops
 from common import summary
 
@@ -23,13 +24,14 @@ def model(features, labels, mode, params):
   images = features["image"]
   labels = labels["label"]
 
-  drop_rate = params.drop_rate if mode == tf.estimator.ModeKeys.TRAIN else 0.0
+  training = mode == tf.estimator.ModeKeys.TRAIN
+  drop_rate = params.drop_rate if training else 0.0
 
   features = ops.conv_layers(
     images,
-    filters=[32, 64, 128],
+    filters=[64, 128, 256],
     kernels=[3, 3, 3],
-    pools=[2, 2, 2])
+    pool_sizes=[2, 2, 2])
 
   features = tf.contrib.layers.flatten(features)
 
@@ -38,15 +40,15 @@ def model(features, labels, mode, params):
     drop_rate=drop_rate,
     linear_top_layer=True)
 
-  predictions = tf.argmax(logits, axis=1)
+  predictions = tf.argmax(logits, axis=-1)
 
-  loss = tf.losses.sparse_softmax_cross_entropy(
-    labels=labels, logits=logits)
+  loss = tf.losses.sparse_softmax_cross_entropy(labels=labels, logits=logits)
 
-  summary.labeled_image("images", images, predictions)
+  tf.summary.image("images", images)
 
-  metrics = {
-    "accuracy": tf.metrics.accuracy(labels, predictions)
+  eval_metrics = {
+    "accuracy": tf.metrics.accuracy(labels, predictions),
+    "top_1_error": tf.metrics.mean(metrics.top_k_error(labels, logits, 1)),
   }
 
   tf.add_to_collection(
@@ -54,4 +56,4 @@ def model(features, labels, mode, params):
   tf.add_to_collection(
     "batch_logging", tf.identity(predictions, name="predictions"))
 
-  return {"predictions": predictions}, loss, metrics
+  return {"predictions": predictions}, loss, eval_metrics

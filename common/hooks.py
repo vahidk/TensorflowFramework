@@ -15,10 +15,10 @@ class ExamplesPerSecondHook(tf.train.SessionRunHook):
       self,
       batch_size,
       every_n_iter=100,
-      every_n_secs=None,):
+      every_n_secs=None):
     """Initializer for ExamplesPerSecondHook."""
     if (every_n_iter is None) == (every_n_secs is None):
-      raise ValueError('exactly one of every_n_iter'
+      raise ValueError('exactly one of every_n_steps'
                        ' and every_n_secs should be provided.')
     self._timer = tf.train.SecondOrStepTimer(
         every_steps=every_n_iter, every_secs=every_n_secs)
@@ -108,3 +108,57 @@ class LoggingTensorHook(tf.train.SessionRunHook):
     for i in range(min(self._first_k, batch_size)):
       for k, v in tensor_values.items():
         tf.logging.info("%s: %s", k, np.array_str(v[i]))
+
+
+class SummarySaverHook(tf.train.SessionRunHook):
+  """Saves summaries every N steps."""
+
+  def __init__(self,
+               every_n_iter=None, 
+               every_n_secs=None,
+               output_dir=None,
+               summary_writer=None):
+    """Initializes a `SummarySaverHook`."""
+    self._summary_writer = summary_writer
+    self._output_dir = output_dir
+    self._timer = tf.train.SecondOrStepTimer(
+      every_secs=every_n_iter, every_steps=every_n_secs)
+
+  def begin(self):
+    if self._summary_writer is None and self._output_dir:
+      self._summary_writer = tf.summary.FileWriterCache.get(self._output_dir)
+    self._next_step = None
+    self._global_step_tensor = tf.train.get_global_step()
+    self._summaries = tf.summary.merge_all()
+    if self._global_step_tensor is None:
+      raise RuntimeError(
+          "Global step should be created to use SummarySaverHook.")
+
+  def before_run(self, run_context):  # pylint: disable=unused-argument
+    self._request_summary = (
+        self._next_step is None or
+        self._timer.should_trigger_for_step(self._next_step))
+    requests = {"global_step": self._global_step_tensor}
+    if self._request_summary and self._summaries is not None:
+      requests["summary"] = self._summaries
+
+    return tf.train.SessionRunArgs(requests)
+
+  def after_run(self, run_context, run_values):
+    _ = run_context
+    if not self._summary_writer:
+      return
+
+    global_step = run_values.results["global_step"]
+
+    if self._request_summary:
+      self._timer.update_last_triggered_step(global_step)
+      if "summary" in run_values.results:
+        summary = run_values.results["summary"]
+        self._summary_writer.add_summary(summary, global_step)
+
+    self._next_step = global_step + 1
+
+  def end(self, session=None):
+    if self._summary_writer:
+      self._summary_writer.flush()

@@ -49,13 +49,12 @@ def prepare():
     tar.close()
 
 
-def read(split):
+def read(mode):
   """Create an instance of the dataset object."""
-  """An iterator that reads and returns images and labels from cifar."""
   batches = {
     tf.estimator.ModeKeys.TRAIN: TRAIN_BATCHES,
     tf.estimator.ModeKeys.EVAL: TEST_BATCHES
-  }[split]
+  }[mode]
 
   all_images = []
   all_labels = []
@@ -80,8 +79,17 @@ def read(split):
   return tf.contrib.data.Dataset.from_tensor_slices((all_images, all_labels))
 
 
-def parse(image, label):
+def parse(mode, image, label):
   """Parse input record to features and labels."""
-  image = tf.to_float(image) / 255.0
+  image = tf.to_float(image)
   image = tf.reshape(image, [IMAGE_SIZE, IMAGE_SIZE, 3])
+
+  if mode == tf.estimator.ModeKeys.TRAIN:
+    image = tf.image.resize_image_with_crop_or_pad(
+      image, IMAGE_SIZE + 4, IMAGE_SIZE + 4)
+    image = tf.random_crop(image, [IMAGE_SIZE, IMAGE_SIZE, 3])
+    image = tf.image.random_flip_left_right(image)
+
+  image = tf.image.per_image_standardization(image)
+  
   return {"image": image}, {"label": label}

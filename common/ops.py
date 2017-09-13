@@ -1,4 +1,4 @@
-"""Common TensorFlow ops."""
+"""Ops."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -6,6 +6,9 @@ from __future__ import print_function
 
 import numpy as np
 import tensorflow as tf
+
+layers = tf.contrib.layers
+framework = tf.contrib.framework
 
 
 def get_shape(tensor):
@@ -37,50 +40,175 @@ def dense_layers(tensor,
                  activation=tf.nn.relu,
                  linear_top_layer=False,
                  drop_rate=0.0,
-                 name=None,
+                 batch_norm=False,
+                 training=False,
+                 weight_decay=0.0002,
                  **kwargs):
   """Builds a stack of fully connected layers with optional dropout."""
-  with tf.variable_scope(name, default_name="dense_layers"):
-    for i, size in enumerate(sizes):
-      if i == len(sizes) - 1 and linear_top_layer:
-        activation = None
+  for i, size in enumerate(sizes):
+    if i == len(sizes) - 1 and linear_top_layer:
+      activation = None
+    with tf.variable_scope("dense_block_%d" % i):
       tensor = tf.layers.dropout(tensor, drop_rate)
       tensor = tf.layers.dense(
-          tensor,
-          size,
-          name="dense_layer_%d" % i,
-          activation=activation,
-          **kwargs)
+        tensor, size, use_bias=True,
+        bias_initializer=tf.zeros_initializer(),
+        kernel_initializer=tf.uniform_unit_scaling_initializer(1.0),
+        kernel_regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
+        **kwargs)
+      if activation:
+        if batch_norm:
+          tensor = batch_normalization(tensor, training=training)
+        tensor = activation(tensor)
   return tensor
 
 
 def conv_layers(tensor,
                 filters,
                 kernels,
-                pools,
+                strides=None,
+                pool_sizes=None,
+                pool_strides=None,
                 padding="same",
                 activation=tf.nn.relu,
-                drop_rate=0.0,
+                linear_top_layer=False,
+                drop_rates=None,
+                transpose=False,
+                pool_method="conv",
+                pool_activation=None,
+                batch_norm=False,
+                training=False,
+                weight_decay=0.0002,
                 **kwargs):
   """Builds a stack of convolutional layers with dropout and max pooling."""
-  for fs, ks, ps in zip(filters, kernels, pools):
-    tensor = tf.layers.dropout(tensor, drop_rate)
-    tensor = tf.layers.conv2d(
-      tensor,
-      filters=fs,
-      kernel_size=ks,
-      padding=padding,
-      activation=activation,
-      **kwargs)
-    if ps and ps > 1:
-      tensor = tf.layers.max_pooling2d(
-        inputs=tensor, pool_size=ps, strides=ps, padding=padding)
+  if pool_sizes is None:
+    pool_sizes = [1] * len(filters)
+  if pool_strides is None:
+    pool_strides = pool_sizes
+  if strides is None:
+    strides = [1] * len(filters)
+  if drop_rates is None:
+    drop_rates = [0.] * len(filters)
+  for i, (fs, ks, ss, pz, pr, drp) in enumerate(
+    zip(filters, kernels, strides, pool_sizes, pool_strides, drop_rates)):
+    with tf.variable_scope("conv_block_%d" % i):
+      if i == len(filters) - 1 and linear_top_layer:
+        activation = None
+        pool_activation = None
+      tensor = tf.layers.dropout(tensor, drp)
+      conv2d = [tf.layers.conv2d, tf.layers.conv2d_transpose][transpose]
+      tensor = conv2d(
+        tensor, fs, ks, ss, padding, use_bias=False,
+        kernel_initializer=tf.glorot_uniform_initializer(),
+        kernel_regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
+        name="conv2d",
+        **kwargs)
+      if activation:
+        if batch_norm:
+          tensor = batch_normalization(tensor, training=training)
+        tensor = activation(tensor)
+      if pz > 1:
+        if pool_method == "max_pool":
+          tensor = tf.layers.max_pooling2d(
+            tensor, pool_size=pz, strides=pr, padding=padding,
+            name="max_pool")
+        else:
+          tensor = conv2d(
+            tensor, fs, pz, pr, padding, use_bias=False,
+            kernel_initializer=tf.glorot_uniform_initializer(),
+            kernel_regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
+            name="strided_conv2d")
+          if pool_activation:
+            if batch_norm:
+              tensor = batch_normalization(tensor, training=training)
+            tensor = pool_activation(tensor)
   return tensor
 
 
-def log_prob_from_logits(logits, axis=-1):
-  """Normalize the log-probabilities so that probabilities sum to one."""
-  return logits - tf.reduce_logsumexp(logits, axis=axis, keep_dims=True)
+def merge(tensors, units, activation=tf.nn.relu, name=None, **kwargs):
+  """Merge tensors with broadcasting support."""
+  with tf.variable_scope(name, default_name="merge"):
+    projs = []
+    for i, tensor in enumerate(tensors):
+      proj = tf.layers.dense(
+          tensor, units, name="proj_%d" % i, **kwargs)
+      projs.append(proj)
+
+    result = projs.pop()
+    for proj in projs:
+      result = result + proj
+
+    if activation:
+      result = activation(result)
+  return result
+
+
+def merge_layers(tensors, units, activation=tf.nn.relu,
+                 linear_top_layer=False, drop_rate=0.,
+                 name=None, **kwargs):
+  """Merge followed by a stack of dense layers."""
+  with tf.variable_scope(name, default_name="merge_layers"):
+    result = merge(tensors, units[0], activation, **kwargs)
+    result = dense_layers(result, units[1:],
+                          activation=activation,
+                          drop_rate=drop_rate,
+                          linear_top_layer=linear_top_layer,
+                          **kwargs)
+  return result
+
+
+def batch_normalization(tensor, epsilon=0.001, training=None, name=None):
+  with tf.variable_scope(name, default_name="batch_normalization"):
+    channels = tensor.shape.as_list()[-1]
+    mean, variance = tf.nn.moments(tensor, axes=[0, 1, 2])
+    beta = tf.get_variable(
+      'beta', channels, initializer=tf.zeros_initializer())
+    gamma = tf.get_variable(
+      'gamma', channels, initializer=tf.ones_initializer())
+    tensor = tf.nn.batch_normalization(
+      tensor, mean, variance, beta, gamma, epsilon)
+  return tensor
+
+
+def resnet_block(tensor, filters, strides, training, weight_decay=0.0002):
+  """Residual block."""
+  original = tensor
+
+  with tf.variable_scope("input"):
+    tensor = batch_normalization(tensor, training=training)
+    tensor = tf.nn.relu(tensor)
+    tensor = tf.layers.conv2d(
+      tensor, filters, 3, strides, padding="same", use_bias=False,
+      kernel_initializer=tf.glorot_uniform_initializer(),
+      kernel_regularizer=tf.contrib.layers.l2_regularizer(weight_decay))
+
+  with tf.variable_scope("output"):
+    tensor = batch_normalization(tensor, training=training)
+    tensor = tf.nn.relu(tensor)
+    tensor = tf.layers.conv2d(
+      tensor, filters, 3, padding="same", use_bias=False,
+      kernel_initializer=tf.glorot_uniform_initializer(),
+      kernel_regularizer=tf.contrib.layers.l2_regularizer(weight_decay))
+
+    in_dims = original.shape[-1].value
+    if in_dims != filters or strides > 1:
+      diff = filters - in_dims
+      original = tf.layers.average_pooling2d(original, strides, strides)
+      original = tf.pad(original, [[0, 0], [0, 0], [0, 0], [0, diff]])
+
+    tensor += original
+
+  return tensor
+
+
+def resnet_blocks(tensor, filters, strides, sub_layers,  training):
+  for i, (filter, stride) in enumerate(zip(filters, strides)):
+    with tf.variable_scope("group%d" % i):
+      for j in range(sub_layers):
+        with tf.variable_scope("block%d" % j):
+          stride = stride if j == 0 else 1
+          tensor = resnet_block(tensor, filter, stride, training)
+  return tensor
 
 
 def batch_gather(tensor, indices):
@@ -163,59 +291,33 @@ def rnn_beam_search(update_fn, initial_state, sequence_length, beam_width,
   return sel_ids, sel_sum_logprobs
 
 
-def merge(tensors, units, activation=tf.nn.relu, name=None, **kwargs):
-  """Merge features with broadcasting support.
-
-  This operation concatenates multiple features of varying length and applies
-  non-linear transformation to the outcome.
-
-  Example:
-    a = tf.zeros([m, 1, d1])
-    b = tf.zeros([1, n, d2])
-    c = merge([a, b], d3)  # shape of c would be [m, n, d3].
-
-  Args:
-    tensors: A list of tensor with the same rank.
-    units: Number of units in the projection function.
-  """
-  with tf.variable_scope(name, default_name="merge"):
-    # Apply linear projection to input tensors.
-    projs = []
-    for i, tensor in enumerate(tensors):
-      proj = tf.layers.dense(
-          tensor, units, activation=None,
-          name="proj_%d" % i,
-          **kwargs)
-      projs.append(proj)
-
-    # Compute sum of tensors.
-    result = projs.pop()
-    for proj in projs:
-      result = result + proj
-
-    # Apply nonlinearity.
-    if activation:
-      result = activation(result)
-  return result
-
-
 def softmax_entropy(logits, dim=-1):
-  """Compute softmax entropy from logits."""
+  """Softmax entropy from logits."""
   plogp = tf.nn.softmax(logits, dim) * tf.nn.log_softmax(logits, dim)
-  return -tf.reduce_sum(plogp, dim)
+  return -tf.reduce_sum(nplogp, dim)
 
 
-def create_optimizer(optimizer, learning_rate, decay_steps=None, **kwargs):
+def leaky_relu(tensor, alpha=0.1):
+  """Computes the leaky rectified linear activation."""
+  return tf.maximum(x, alpha * x)
+
+
+def create_optimizer(optimizer, learning_rate, momentum, warmup_steps, 
+                     decay_steps, decay_rate, **kwargs):
   """Create an optimizer object."""
-  global_step = tf.train.get_or_create_global_step()
+  step = tf.to_float(tf.train.get_or_create_global_step())
+
+  if warmup_steps:
+    learning_rate *= tf.minimum(1., (step + 1.0) / warmup_steps)
+    step = tf.maximum(0., step - warmup_steps)
 
   if decay_steps:
-    learning_rate = tf.train.exponential_decay(
-      learning_rate, global_step, decay_steps, 0.5, staircase=True)
-    tf.summary.scalar("learning_rate", learning_rate)
+    learning_rate *= decay_rate ** (step // decay_steps)
+
+  tf.summary.scalar("learning_rate", learning_rate)
 
   return tf.contrib.layers.OPTIMIZER_CLS_NAMES[optimizer](
-    learning_rate, **kwargs)
+    learning_rate, momentum, **kwargs)
 
 
 def average_gradients(tower_grads):
