@@ -35,6 +35,52 @@ def reshape(tensor, dims_list):
   return tensor
 
 
+def batch_normalization(tensor, training=False, epsilon=0.001, momentum=0.9, 
+                        fused_batch_norm=False, name=None):
+  with tf.variable_scope(name, default_name="batch_normalization"):
+    channels = tensor.shape.as_list()[-1]
+    axes = list(range(tensor.shape.ndims - 1))
+
+    beta = tf.get_variable(
+      'beta', channels, initializer=tf.zeros_initializer())
+    gamma = tf.get_variable(
+      'gamma', channels, initializer=tf.ones_initializer())
+
+    avg_mean = tf.get_variable(
+      "avg_mean", channels, initializer=tf.zeros_initializer(),
+      trainable=False)
+    avg_variance = tf.get_variable(
+      "avg_variance", channels, initializer=tf.ones_initializer(),
+      trainable=False)
+
+    if training:
+      if fused_batch_norm:
+        mean, variance = None, None
+      else:
+        mean, variance = tf.nn.moments(tensor, axes=axes)
+    else:
+      mean, variance = avg_mean, avg_variance
+   
+    if fused_batch_norm:
+      tensor, mean, variance = tf.nn.fused_batch_norm(
+        tensor, scale=gamma, offset=beta, mean=mean, variance=variance, 
+        epsilon=epsilon, is_training=training)
+    else:
+      tensor = tf.nn.batch_normalization(
+        tensor, mean, variance, beta, gamma, epsilon)
+
+    if training:
+      update_mean = tf.assign(
+        avg_mean, avg_mean * momentum + mean * (1.0 - momentum))
+      update_variance = tf.assign(
+        avg_variance, avg_variance * momentum + variance * (1.0 - momentum))
+
+      tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update_mean)
+      tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update_variance)
+
+  return tensor
+
+
 def dense_layers(tensor,
                  sizes,
                  activation=tf.nn.relu,
@@ -53,7 +99,7 @@ def dense_layers(tensor,
       tensor = tf.layers.dense(
         tensor, size, use_bias=True,
         bias_initializer=tf.zeros_initializer(),
-        kernel_initializer=tf.uniform_unit_scaling_initializer(1.0),
+        kernel_initializer=tf.glorot_uniform_initializer(),
         kernel_regularizer=tf.contrib.layers.l2_regularizer(weight_decay),
         **kwargs)
       if activation:
@@ -155,19 +201,6 @@ def merge_layers(tensors, units, activation=tf.nn.relu,
                           linear_top_layer=linear_top_layer,
                           **kwargs)
   return result
-
-
-def batch_normalization(tensor, epsilon=0.001, training=None, name=None):
-  with tf.variable_scope(name, default_name="batch_normalization"):
-    channels = tensor.shape.as_list()[-1]
-    mean, variance = tf.nn.moments(tensor, axes=[0, 1, 2])
-    beta = tf.get_variable(
-      'beta', channels, initializer=tf.zeros_initializer())
-    gamma = tf.get_variable(
-      'gamma', channels, initializer=tf.ones_initializer())
-    tensor = tf.nn.batch_normalization(
-      tensor, mean, variance, beta, gamma, epsilon)
-  return tensor
 
 
 def resnet_block(tensor, filters, strides, training, weight_decay=0.0002):
