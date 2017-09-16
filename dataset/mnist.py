@@ -61,7 +61,7 @@ def read(mode):
 
     with gzip.open(LOCAL_DIR + label_urls, "rb") as f:
         magic, num = struct.unpack(">II", f.read(8))
-        labels = np.frombuffer(f.read(num), dtype=np.int8)
+        labels = np.frombuffer(f.read(num), dtype=np.int8).astype(np.int32)
         print("Loaded %d labels." % num)
 
     return tf.contrib.data.Dataset.from_tensor_slices((images, labels))
