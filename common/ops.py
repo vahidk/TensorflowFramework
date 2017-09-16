@@ -327,7 +327,7 @@ def rnn_beam_search(update_fn, initial_state, sequence_length, beam_width,
 def softmax_entropy(logits, dim=-1):
   """Softmax entropy from logits."""
   plogp = tf.nn.softmax(logits, dim) * tf.nn.log_softmax(logits, dim)
-  return -tf.reduce_sum(nplogp, dim)
+  return -tf.reduce_sum(plogp, dim)
 
 
 def leaky_relu(tensor, alpha=0.1):
