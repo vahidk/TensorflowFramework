@@ -332,7 +332,7 @@ def softmax_entropy(logits, dim=-1):
 
 def leaky_relu(tensor, alpha=0.1):
   """Computes the leaky rectified linear activation."""
-  return tf.maximum(x, alpha * x)
+  return tf.maximum(tensor, alpha * tensor)
 
 
 def create_optimizer(optimizer, learning_rate, momentum, warmup_steps, 
