@@ -91,5 +91,5 @@ def parse(mode, image, label):
     image = tf.image.random_flip_left_right(image)
 
   image = tf.image.per_image_standardization(image)
-  
+
   return {"image": image}, {"label": label}

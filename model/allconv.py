@@ -9,13 +9,14 @@ import tensorflow as tf
 
 from common import metrics
 from common import ops
-from common import summary
 
 FLAGS = tf.flags.FLAGS
 
 def get_params():
   return {
-    "drop_rate": 0.0
+    "weight_decay": 0.0002,
+    "input_drop_rate": 0.2,
+    "drop_rate": 0.5
   }
 
 
@@ -27,6 +28,8 @@ def model(features, labels, mode, params):
   training = mode == tf.estimator.ModeKeys.TRAIN
   drop_rate = params.drop_rate if training else 0.0
 
+  images = tf.layers.dropout(images, params.input_drop_rate)
+
   features = ops.conv_layers(
     images,
     filters=[96, 96, 192, 192, 192, 192, params.num_classes],
@@ -37,7 +40,8 @@ def model(features, labels, mode, params):
     batch_norm=True,
     training=training,
     pool_activation=tf.nn.relu,
-    linear_top_layer=True)
+    linear_top_layer=True,
+    weight_decay=params.weight_decay)
 
   logits = tf.reduce_mean(features, [1, 2])
 

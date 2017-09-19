@@ -9,7 +9,6 @@ import tensorflow as tf
 
 from common import metrics
 from common import ops
-from common import summary
 
 FLAGS = tf.flags.FLAGS
 
@@ -37,7 +36,7 @@ def model(features, labels, mode, params):
 
   logits = ops.dense_layers(
     features, [512, params.num_classes],
-    drop_rate=drop_rate,
+    drop_rates=drop_rate,
     linear_top_layer=True)
 
   predictions = tf.argmax(logits, axis=-1)
