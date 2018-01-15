@@ -78,6 +78,7 @@ def make_input_fn(dataset, mode, params,
         d = d.shuffle(params.batch_size * shuffle_batches)
       d = d.map(_parse, num_threads=num_threads)
       d = d.batch(params.batch_size)
+      d = d.prefetch(num_threads)
       if initializable_iterator:
         it = d.make_initializable_iterator()
         features, labels = it.get_next()
