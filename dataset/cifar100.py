@@ -76,7 +76,7 @@ def read(mode):
   all_images = np.concatenate(all_images)
   all_labels = np.concatenate(all_labels)
 
-  return tf.contrib.data.Dataset.from_tensor_slices((all_images, all_labels))
+  return tf.data.Dataset.from_tensor_slices((all_images, all_labels))
 
 
 def parse(mode, image, label):
