@@ -104,7 +104,7 @@ class LoggingTensorHook(tf.train.SessionRunHook):
   def _batch_print(self, tensor_values):
     if not tensor_values:
       return
-    batch_size = tensor_values.values()[0].shape[0]
+    batch_size = list(tensor_values.values())[0].shape[0]
     for i in range(min(self._first_k, batch_size)):
       for k, v in tensor_values.items():
         tf.logging.info("{0}: {1}".format(k, v[i]))
