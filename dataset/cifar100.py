@@ -14,6 +14,7 @@ import sys
 import tarfile
 import tensorflow as tf
 
+from common import dataset
 from common import utils
 
 REMOTE_URL = "https://www.cs.toronto.edu/~kriz/cifar-100-python.tar.gz"
@@ -27,59 +28,61 @@ IMAGE_SIZE = 32
 NUM_CLASSES = 100
 
 
-def get_params():
-  """Return dataset parameters."""
-  return {
-    "image_size": IMAGE_SIZE,
-    "num_classes": NUM_CLASSES,
-  }
+class Cifar100(dataset.AbstractDataset):
+
+  def get_params(self):
+    """Return dataset parameters."""
+    return {
+      "image_size": IMAGE_SIZE,
+      "num_classes": NUM_CLASSES,
+    }
 
 
-def prepare():
-  """Download the cifar 100 dataset."""
-  if not os.path.exists(LOCAL_DIR):
-    os.makedirs(LOCAL_DIR)
-  if not os.path.exists(LOCAL_DIR + ARCHIVE_NAME):
-    print("Downloading...")
-    urllib.request.urlretrieve(REMOTE_URL, LOCAL_DIR + ARCHIVE_NAME)
-  if not os.path.exists(LOCAL_DIR + DATA_DIR):
-    print("Extracting files...")
-    tar = tarfile.open(LOCAL_DIR + ARCHIVE_NAME)
-    tar.extractall(LOCAL_DIR)
-    tar.close()
+  def prepare(self):
+    """Download the cifar 100 dataset."""
+    if not os.path.exists(LOCAL_DIR):
+      os.makedirs(LOCAL_DIR)
+    if not os.path.exists(LOCAL_DIR + ARCHIVE_NAME):
+      print("Downloading...")
+      urllib.request.urlretrieve(REMOTE_URL, LOCAL_DIR + ARCHIVE_NAME)
+    if not os.path.exists(LOCAL_DIR + DATA_DIR):
+      print("Extracting files...")
+      tar = tarfile.open(LOCAL_DIR + ARCHIVE_NAME)
+      tar.extractall(LOCAL_DIR)
+      tar.close()
 
 
-def read(mode):
-  """Create an instance of the dataset object."""
-  batches = {
-    tf.estimator.ModeKeys.TRAIN: TRAIN_BATCHES,
-    tf.estimator.ModeKeys.EVAL: TEST_BATCHES
-  }[mode]
+  def read(self, mode):
+    """Create an instance of the dataset object."""
+    batches = {
+      tf.estimator.ModeKeys.TRAIN: TRAIN_BATCHES,
+      tf.estimator.ModeKeys.EVAL: TEST_BATCHES
+    }[mode]
 
-  all_images = []
-  all_labels = []
+    all_images = []
+    all_labels = []
 
-  for batch in batches:
-    with open("%s%s%s" % (LOCAL_DIR, DATA_DIR, batch), "rb") as fo:
-      dict = cPickle.load(fo)
-      images = np.array(dict["data"])
-      labels = np.array(dict["fine_labels"])
+    for batch in batches:
+      with open("%s%s%s" % (LOCAL_DIR, DATA_DIR, batch), "rb") as fo:
+        dict = cPickle.load(fo)
+        images = np.array(dict["data"])
+        labels = np.array(dict["fine_labels"])
 
-      num = images.shape[0]
-      images = np.reshape(images, [num, 3, IMAGE_SIZE, IMAGE_SIZE])
-      images = np.transpose(images, [0, 2, 3, 1])
-      print("Loaded %d examples." % num)
+        num = images.shape[0]
+        images = np.reshape(images, [num, 3, IMAGE_SIZE, IMAGE_SIZE])
+        images = np.transpose(images, [0, 2, 3, 1])
+        print("Loaded %d examples." % num)
 
-      all_images.append(images)
-      all_labels.append(labels)
+        all_images.append(images)
+        all_labels.append(labels)
 
-  all_images = np.concatenate(all_images)
-  all_labels = np.concatenate(all_labels)
+    all_images = np.concatenate(all_images)
+    all_labels = np.concatenate(all_labels)
 
-  return tf.data.Dataset.from_tensor_slices((all_images, all_labels))
+    return tf.data.Dataset.from_tensor_slices((all_images, all_labels))
 
 
-def parse(mode, image, label):
+def parse(self, mode, image, label):
   """Parse input record to features and labels."""
   image = tf.to_float(image)
   image = tf.reshape(image, [IMAGE_SIZE, IMAGE_SIZE, 3])
@@ -93,3 +96,5 @@ def parse(mode, image, label):
   image = tf.image.per_image_standardization(image)
 
   return {"image": image}, {"label": label}
+
+dataset.DatasetFactory.register("cifar100", Cifar100)

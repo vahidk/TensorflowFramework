@@ -9,22 +9,18 @@ import matplotlib
 import numpy as np
 import os
 import tensorflow as tf
-from tensorflow.python.client import device_lib
 
+import dataset as _
+import model as _
+
+from common import dataset
 from common import hooks
 from common import hparams
 from common import io as common_io
 from common import ops
 from common import optimizer
 from common import metrics
-
-import dataset.cifar10
-import dataset.cifar100
-import dataset.mnist
-
-import model.alexnet
-import model.allconv
-import model.resnet
+from common import model
 
 tf.logging.set_verbosity(tf.logging.INFO)
 
@@ -43,22 +39,12 @@ tf.flags.DEFINE_integer("num_gpus", 0, "Numner of gpus.")
 
 FLAGS = tf.flags.FLAGS
 
-MODELS = {
-  "alexnet": model.alexnet,
-  "allconv": model.allconv,
-  "resnet": model.resnet
-}
-
-DATASETS = {
-  "cifar10": dataset.cifar10,
-  "cifar100": dataset.cifar100,
-  "mnist": dataset.mnist,
-}
-
+MODEL = model.ModelFactory.create(FLAGS.model)
+DATASET = dataset.DatasetFactory.create(FLAGS.dataset)
 
 def experiment_fn(run_config, hparams):
   estimator = tf.estimator.Estimator(
-    model_fn=optimizer.make_model_fn(MODELS[FLAGS.model].model, FLAGS.num_gpus), 
+    model_fn=optimizer.make_model_fn(MODEL.model, FLAGS.num_gpus), 
     config=run_config, params=hparams)
   train_hooks = [
     hooks.ExamplesPerSecondHook(
@@ -79,12 +65,12 @@ def experiment_fn(run_config, hparams):
   experiment = tf.contrib.learn.Experiment(
     estimator=estimator,
     train_input_fn=common_io.make_input_fn(
-      DATASETS[FLAGS.dataset], tf.estimator.ModeKeys.TRAIN, hparams,
+      DATASET, tf.estimator.ModeKeys.TRAIN, hparams,
       num_epochs=FLAGS.num_epochs, 
       shuffle_batches=FLAGS.shuffle_batches,
       num_threads=FLAGS.num_reader_threads),
     eval_input_fn=common_io.make_input_fn(
-      DATASETS[FLAGS.dataset], tf.estimator.ModeKeys.EVAL, hparams,
+      DATASET, tf.estimator.ModeKeys.EVAL, hparams,
       num_epochs=FLAGS.num_epochs, 
       shuffle_batches=FLAGS.shuffle_batches,
       num_threads=FLAGS.num_reader_threads),
@@ -104,7 +90,7 @@ def main(unused_argv):
       if not os.path.exists(model_dir):
         break
 
-  DATASETS[FLAGS.dataset].prepare()
+  DATASET.prepare()
 
   session_config = tf.ConfigProto()
   session_config.allow_soft_placement = True
@@ -120,8 +106,7 @@ def main(unused_argv):
     experiment_fn=experiment_fn,
     run_config=run_config,
     schedule=FLAGS.schedule,
-    hparams=hparams.get_params(
-      MODELS[FLAGS.model], DATASETS[FLAGS.dataset], FLAGS.hparams))
+    hparams=hparams.get_params(MODEL, DATASET, FLAGS.hparams))
 
 
 if __name__ == "__main__":
