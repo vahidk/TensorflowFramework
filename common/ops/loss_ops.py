@@ -7,6 +7,12 @@ from __future__ import print_function
 import tensorflow as tf
 
 
+def softmax_entropy(logits, dim=-1):
+  """Softmax entropy from logits."""
+  plogp = tf.nn.softmax(logits, dim) * tf.nn.log_softmax(logits, dim)
+  return -tf.reduce_sum(plogp, dim)
+
+
 def gaussian_kl(q, p=(0., 0.)):
   """Computes the KL divergence between two isotropic Gaussian distributions.
 

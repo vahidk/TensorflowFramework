@@ -15,6 +15,7 @@ DEFAULT_PARAMS = {
   "decay_steps": 20000,
   "decay_rate": 0.1,
   "batch_size": 128,
+  "eval_batch_size": 128
 }
 
 

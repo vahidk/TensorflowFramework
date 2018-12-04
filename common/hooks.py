@@ -18,8 +18,8 @@ class ExamplesPerSecondHook(tf.train.SessionRunHook):
       every_n_secs=None):
     """Initializer for ExamplesPerSecondHook."""
     if (every_n_iter is None) == (every_n_secs is None):
-      raise ValueError('exactly one of every_n_steps'
-                       ' and every_n_secs should be provided.')
+      raise ValueError("exactly one of every_n_steps"
+                       " and every_n_secs should be provided.")
     self._timer = tf.train.SecondOrStepTimer(
         every_steps=every_n_iter, every_secs=every_n_secs)
 
@@ -31,7 +31,7 @@ class ExamplesPerSecondHook(tf.train.SessionRunHook):
     self._global_step_tensor = tf.train.get_global_step()
     if self._global_step_tensor is None:
       raise RuntimeError(
-          'Global step should be created to use StepCounterHook.')
+          "Global step should be created to use StepCounterHook.")
 
   def before_run(self, run_context):
     del run_context
@@ -52,7 +52,7 @@ class ExamplesPerSecondHook(tf.train.SessionRunHook):
         average_examples_per_sec = self._batch_size * (
             self._total_steps / self._step_train_time)
         current_examples_per_sec = steps_per_sec * self._batch_size
-        tf.logging.info('Examples/sec: %g (%g), step = %g',
+        tf.logging.info("Examples/sec: %g (%g), step = %g",
                      average_examples_per_sec, current_examples_per_sec,
                      self._total_steps)
 
@@ -99,7 +99,7 @@ class LoggingTensorHook(tf.train.SessionRunHook):
     if not tensor_values:
       return
     for k, v in tensor_values.items():
-      tf.logging.info("{0}: {1}".format(k, v))
+      tf.logging.info("%s: %s", k, np.array_str(v))
 
   def _batch_print(self, tensor_values):
     if not tensor_values:
@@ -114,7 +114,7 @@ class SummarySaverHook(tf.train.SessionRunHook):
   """Saves summaries every N steps."""
 
   def __init__(self,
-               every_n_iter=None, 
+               every_n_iter=None,
                every_n_secs=None,
                output_dir=None,
                summary_writer=None):

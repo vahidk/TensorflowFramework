@@ -33,20 +33,17 @@ def parallel_record_writer(iterator, create_example, path, num_threads=6):
       outputs.put(example)
     outputs.put(None)
 
-  # Read the inputs.
   inputs = mp.Queue()
   process = mp.Process(target=_queue, args=(inputs,))
   process.daemon = True
   process.start()
 
-  # Convert to tf.Example
   outputs = mp.Queue()
   for _ in range(num_threads):
     process = mp.Process(target=_map_fn, args=(inputs, outputs))
     process.daemon = True
     process.start()
 
-  # Write the output to file.
   writer = tf.python_io.TFRecordWriter(path)
   counter = 0
   while True:
@@ -73,12 +70,14 @@ def make_input_fn(dataset, mode, params,
     with tf.device(tf.DeviceSpec(device_type="CPU", device_index=0)):
       d = dataset.read(mode)
       d = d.cache()
+      batch_size = params.batch_size
       if mode == tf.estimator.ModeKeys.TRAIN:
         d = d.repeat(num_epochs)
         d = d.shuffle(params.batch_size * shuffle_batches)
+      elif hasattr(params, "eval_batch_size"):
+        batch_size = params.eval_batch_size
       d = d.map(_parse, num_parallel_calls=num_threads)
-      d = d.batch(params.batch_size)
-      d = d.prefetch(num_threads)
+      d = d.batch(batch_size)
       if initializable_iterator:
         it = d.make_initializable_iterator()
         features, labels = it.get_next()

@@ -7,11 +7,12 @@ from __future__ import print_function
 import numpy as np
 import tensorflow as tf
 
-from common import metrics
-from common import ops
 from common import model
+from common import ops
+
 
 FLAGS = tf.flags.FLAGS
+
 
 class AlexNetModel(model.AbstractModel):
 
@@ -50,7 +51,7 @@ class AlexNetModel(model.AbstractModel):
 
     eval_metrics = {
       "accuracy": tf.metrics.accuracy(labels, predictions),
-      "top_1_error": tf.metrics.mean(metrics.top_k_error(labels, logits, 1)),
+      "top_1_error": tf.metrics.mean(ops.top_k_error(labels, logits, 1)),
     }
 
     tf.add_to_collection(
@@ -59,5 +60,6 @@ class AlexNetModel(model.AbstractModel):
       "batch_logging", tf.identity(predictions, name="predictions"))
 
     return {"predictions": predictions}, loss, eval_metrics
+
 
 model.ModelFactory.register("alexnet", AlexNetModel)

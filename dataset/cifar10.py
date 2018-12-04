@@ -9,16 +9,14 @@ import numpy as np
 import os
 from six.moves import cPickle
 from six.moves import urllib
-import struct
 import sys
 import tarfile
 import tensorflow as tf
 
 from common import dataset
-from common import utils
 
 REMOTE_URL = "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
-LOCAL_DIR = os.path.join("data/cifar10/")
+LOCAL_DIR = "data/cifar10/"
 ARCHIVE_NAME = "cifar-10-python.tar.gz"
 DATA_DIR = "cifar-10-batches-py/"
 TRAIN_BATCHES = ["data_batch_%d" % (i + 1) for i in range(5)]
@@ -31,26 +29,13 @@ NUM_CLASSES = 10
 class Cifar10(dataset.AbstractDataset):
 
   def get_params(self):
-    """Return dataset parameters."""
     return {
       "image_size": IMAGE_SIZE,
       "num_classes": NUM_CLASSES,
     }
 
-
   def prepare(self):
-    """Download the cifar dataset."""
-    if not os.path.exists(LOCAL_DIR):
-      os.makedirs(LOCAL_DIR)
-    if not os.path.exists(LOCAL_DIR + ARCHIVE_NAME):
-      print("Downloading...")
-      urllib.request.urlretrieve(REMOTE_URL, LOCAL_DIR + ARCHIVE_NAME)
-    if not os.path.exists(LOCAL_DIR + DATA_DIR):
-      print("Extracting files...")
-      tar = tarfile.open(LOCAL_DIR + ARCHIVE_NAME)
-      tar.extractall(LOCAL_DIR)
-      tar.close()
-
+    _download_data()
 
   def read(self, mode):
     """Create an instance of the dataset object."""
@@ -97,4 +82,30 @@ class Cifar10(dataset.AbstractDataset):
 
     return {"image": image}, {"label": label}
 
+
 dataset.DatasetFactory.register("cifar10", Cifar10)
+
+
+def _download_data():
+  """Download the cifar dataset."""
+  if not os.path.exists(LOCAL_DIR):
+    os.makedirs(LOCAL_DIR)
+  if not os.path.exists(LOCAL_DIR + ARCHIVE_NAME):
+    print("Downloading...")
+    urllib.request.urlretrieve(REMOTE_URL, LOCAL_DIR + ARCHIVE_NAME)
+  if not os.path.exists(LOCAL_DIR + DATA_DIR):
+    print("Extracting files...")
+    tar = tarfile.open(LOCAL_DIR + ARCHIVE_NAME)
+    tar.extractall(LOCAL_DIR)
+    tar.close()
+
+
+if __name__ == "__main__":
+  if len(sys.argv) != 2:
+    print("Usage: python dataset.cifar10 download")
+    sys.exit(1)
+
+  if sys.argv[1] == "download":
+    _download_data()
+  else:
+    print("Unknown command", sys.argv[1])

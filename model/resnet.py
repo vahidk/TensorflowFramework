@@ -7,12 +7,11 @@ from __future__ import print_function
 import numpy as np
 import tensorflow as tf
 
-from common import metrics
-from common import ops
-from common import resnet
 from common import model
+from common import ops
 
-class ResNetModel(model.AbstractModel):
+
+class ResnetModel(model.AbstractModel):
 
   def get_params(self):
     return {
@@ -33,7 +32,7 @@ class ResNetModel(model.AbstractModel):
       images, [16], [3], linear_top_layer=True,
       weight_decay=params.weight_decay)
 
-    features = resnet.resnet_blocks(
+    features = ops.resnet_blocks(
       features, [16, 32, 64], [1, 2, 2], 5, training=training,
       weight_decay=params.weight_decay,
       drop_rates=drop_rate)
@@ -53,9 +52,10 @@ class ResNetModel(model.AbstractModel):
 
     eval_metrics = {
       "accuracy": tf.metrics.accuracy(labels, predictions),
-      "top_1_error": tf.metrics.mean(metrics.top_k_error(labels, logits, 1)),
+      "top_1_error": tf.metrics.mean(ops.top_k_error(labels, logits, 1)),
     }
 
     return {"predictions": predictions}, loss, eval_metrics
 
-model.ModelFactory.register("resnet", ResNetModel)
+
+model.ModelFactory.register("resnet", ResnetModel)

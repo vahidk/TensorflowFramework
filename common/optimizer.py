@@ -4,6 +4,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import collections
 import numpy as np
 import tensorflow as tf
 
@@ -59,7 +60,60 @@ def average_gradients(tower_grads):
   return average_grads
 
 
+def stage_tensors(tensors, capacity=5):
+  """Buffer tensors."""
+  dtypes = [f.dtype for f in tensors.values()]
+  shapes = [f.shape for f in tensors.values()]
+  names = [f for f in tensors.keys()]
+  staging = tf.contrib.staging.StagingArea(
+    dtypes, shapes, names, capacity=capacity)
+  put_op = staging.put(tensors)
+  get_op = staging.get()
+  return put_op, get_op
+
+
+def make_parallel(model_fn, features, labels, mode, params, num_gpus):
+  with tf.device(tf.DeviceSpec(device_type="CPU", device_index=0)):
+    split_features = {k: tf.split(v, num_gpus)
+                      for k, v in features.iteritems()}
+    split_labels = {k: tf.split(v, num_gpus)
+                    for k, v in labels.iteritems()}
+
+  predictions = collections.defaultdict(list)
+  losses = []
+
+  for i in range(num_gpus):
+    with tf.device(tf.DeviceSpec(device_type="GPU", device_index=i)):
+      with tf.name_scope("tower_%d" % i) as name_scope:
+        with tf.variable_scope(tf.get_variable_scope(), reuse=i > 0):
+          device_features = {k: v[i] for k, v in split_features.iteritems()}
+          device_labels = {k:v[i] for k, v in split_labels.iteritems()}
+
+          device_predictions, device_loss, device_metrics = model_fn(
+            device_features, device_labels, mode, params)
+
+          if i == 0:
+            eval_metrics = device_metrics
+            update_ops = tf.get_collection(
+              tf.GraphKeys.UPDATE_OPS, name_scope)
+
+            reg_losses = tf.get_collection(
+              tf.GraphKeys.REGULARIZATION_LOSSES, name_scope)
+
+          for k, v in device_predictions.iteritems():
+            predictions[k].append(v)
+
+          if device_loss is not None:
+            losses.append(device_loss)
+
+  for k, v in predictions.iteritems():
+    predictions[k] = tf.concat(v, axis=0)
+
+  return predictions, losses, reg_losses, update_ops, eval_metrics
+
+
 def make_model_fn(model_fn, num_gpus=None):
+  """Build the model function."""
   def _model_fn(features, labels, mode, params):
     global_step = tf.train.get_or_create_global_step()
 
@@ -72,79 +126,36 @@ def make_model_fn(model_fn, num_gpus=None):
       learning_rate, params.momentum)
 
     if num_gpus:
-      split_features = {k: tf.split(v, num_gpus)
-                        for k, v in features.iteritems()}
-      split_labels = {k: tf.split(v, num_gpus)
-                      for k, v in labels.iteritems()}
-      grads = []
-      predictions = collections.defaultdict(list)
-      losses = []
-
-      for i in range(num_gpus):
-        with tf.device(tf.DeviceSpec(device_type="GPU", device_index=i)):
-          with tf.name_scope("tower_%d" % i) as name_scope:
-            with tf.variable_scope(tf.get_variable_scope(), reuse=i > 0):
-              device_features = {k: v[i] for k, v in split_features.iteritems()}
-              device_labels = {k:v[i] for k, v in split_labels.iteritems()}
-
-              device_predictions, device_loss, device_metrics = model_fn(
-                device_features, device_labels, mode, params)
-              tf.summary.scalar("loss/main", device_loss)
-
-              if i == 0:
-                eval_metrics = device_metrics
-                update_ops = tf.get_collection(
-                  tf.GraphKeys.UPDATE_OPS, name_scope)
-
-                reg_losses = tf.get_collection(
-                  tf.GraphKeys.REGULARIZATION_LOSSES, name_scope)
-                tf.summary.scalar("loss/regularization", tf.add_n(reg_losses))
-
-                device_loss = tf.add_n([device_loss] + reg_losses)
-
-              for k, v in device_predictions.iteritems():
-                predictions[k].append(v)
-
-              if device_loss is not None:
-                losses.append(device_loss)
-
-              if mode == tf.estimator.ModeKeys.TRAIN:
-                with tf.control_dependencies(update_ops):
-                  device_grads = opt.compute_gradients(device_loss)
-                grads.append(device_grads)
-
-      with tf.device(tf.DeviceSpec(device_type="GPU", device_index=0)):
-        if mode == tf.estimator.ModeKeys.TRAIN:
-          grads = average_gradients(grads)
-          train_op = opt.apply_gradients(grads, global_step=global_step)
-        else:
-          train_op = None
-
-        for k, v in predictions.iteritems():
-          predictions[k] = tf.concat(v, axis=0)
-
-        loss = tf.add_n(losses) if losses else None
+      predictions, losses, reg_losses, update_ops, eval_metrics = make_parallel(
+        model_fn, features, labels, mode, params, num_gpus)
     else:
       predictions, loss, eval_metrics = model_fn(features, labels, mode, params)
-      tf.summary.scalar("loss/main", loss)
-
+      losses = [loss]
+      reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
       update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
-      reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
-      tf.summary.scalar("loss/regularization", tf.add_n(reg_losses))
+    loss = None
 
-      loss = tf.add_n([loss] + reg_losses)
-
-      if mode == tf.estimator.ModeKeys.TRAIN:
-        with tf.control_dependencies(update_ops):
-          train_op = opt.minimize(loss, global_step=global_step)
-      else:
-        train_op = None
+    if losses:
+      loss = tf.add_n(losses) / len(losses)
+      tf.summary.scalar("loss/main", tf.add_n(losses))
+    
+      if reg_losses:
+        loss += tf.add_n(reg_losses)
+        tf.summary.scalar("loss/regularization", tf.add_n(reg_losses))
 
     if mode == tf.estimator.ModeKeys.TRAIN:
+      with tf.control_dependencies(update_ops):
+        train_op = opt.minimize(
+          loss, 
+          global_step=global_step,
+          colocate_gradients_with_ops=True)
+
       opts = tf.profiler.ProfileOptionBuilder().trainable_variables_parameter()
       stats = tf.profiler.profile(tf.get_default_graph(), options=opts)
       print("Total parameters:", stats.total_parameters)
+    else:
+      train_op = None
 
     return tf.estimator.EstimatorSpec(
       mode=mode,
