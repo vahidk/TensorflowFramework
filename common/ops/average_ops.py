@@ -18,15 +18,17 @@ def moving_average(tensor, training=False, name=None):
       initializer=tf.zeros_initializer(),
       trainable=False)
 
-    sum = sum_var + tf.reduce_sum(tensor, axis=0)
-    count = count_var + tf.to_float(tf.shape(tensor)[0])
-    mean = sum / count
-
     if training:
+      sum = sum_var + tf.reduce_sum(tensor, axis=0)
+      count = count_var + tf.to_float(tf.shape(tensor)[0])
+      mean = sum / count
+
       update_sum = tf.assign(sum_var, sum)
       update_count = tf.assign(count_var, count)
       tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update_sum)
       tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update_count)
 
-    return mean
+      return mean
 
+    mean = sum_var / count_var
+    return mean

@@ -61,19 +61,3 @@ def batch_normalization(tensor, training=False, epsilon=0.001, momentum=0.9,
       tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update_variance)
 
   return tensor
-
-
-def squeeze_and_excite(tensor, ratio, name=None):
-  """Apply squeeze/excite on given 4-D tensor.
-
-  Based on: https://arxiv.org/abs/1709.01507
-  """
-  with tf.variable_scope(name, default_name="squeeze_and_excite"):
-    original = tensor
-    units = tensor.shape.as_list()[-1]
-    tensor = tf.reduce_mean(tensor, [1, 2], keep_dims=True)
-    tensor = dense_layers(
-      tensor, [units / ratio, units], use_bias=False, linear_top_layer=True)
-    tensor = tf.nn.sigmoid(tensor)
-    tensor = original * tensor
-  return tensor

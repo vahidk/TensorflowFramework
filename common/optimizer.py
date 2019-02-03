@@ -75,9 +75,9 @@ def stage_tensors(tensors, capacity=5):
 def make_parallel(model_fn, features, labels, mode, params, num_gpus):
   with tf.device(tf.DeviceSpec(device_type="CPU", device_index=0)):
     split_features = {k: tf.split(v, num_gpus)
-                      for k, v in features.iteritems()}
+                      for k, v in features.items()}
     split_labels = {k: tf.split(v, num_gpus)
-                    for k, v in labels.iteritems()}
+                    for k, v in labels.items()}
 
   predictions = collections.defaultdict(list)
   losses = []
@@ -86,8 +86,8 @@ def make_parallel(model_fn, features, labels, mode, params, num_gpus):
     with tf.device(tf.DeviceSpec(device_type="GPU", device_index=i)):
       with tf.name_scope("tower_%d" % i) as name_scope:
         with tf.variable_scope(tf.get_variable_scope(), reuse=i > 0):
-          device_features = {k: v[i] for k, v in split_features.iteritems()}
-          device_labels = {k:v[i] for k, v in split_labels.iteritems()}
+          device_features = {k: v[i] for k, v in split_features.items()}
+          device_labels = {k:v[i] for k, v in split_labels.items()}
 
           device_predictions, device_loss, device_metrics = model_fn(
             device_features, device_labels, mode, params)
@@ -100,13 +100,13 @@ def make_parallel(model_fn, features, labels, mode, params, num_gpus):
             reg_losses = tf.get_collection(
               tf.GraphKeys.REGULARIZATION_LOSSES, name_scope)
 
-          for k, v in device_predictions.iteritems():
+          for k, v in device_predictions.items():
             predictions[k].append(v)
 
           if device_loss is not None:
             losses.append(device_loss)
 
-  for k, v in predictions.iteritems():
+  for k, v in predictions.items():
     predictions[k] = tf.concat(v, axis=0)
 
   return predictions, losses, reg_losses, update_ops, eval_metrics

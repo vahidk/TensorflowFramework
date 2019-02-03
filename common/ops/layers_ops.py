@@ -145,6 +145,22 @@ def merge_layers(tensors, units, activation=tf.nn.relu,
   return result
 
 
+def squeeze_and_excite(tensor, ratio, name=None):
+  """Apply squeeze/excite on given 4-D tensor.
+
+  Based on: https://arxiv.org/abs/1709.01507
+  """
+  with tf.variable_scope(name, default_name="squeeze_and_excite"):
+    original = tensor
+    units = tensor.shape.as_list()[-1]
+    tensor = tf.reduce_mean(tensor, [1, 2], keepdims=True)
+    tensor = dense_layers(
+      tensor, [units / ratio, units], use_bias=False, linear_top_layer=True)
+    tensor = tf.nn.sigmoid(tensor)
+    tensor = original * tensor
+  return tensor
+
+
 def resnet_block(tensor, filters, strides, training, weight_decay=0.0002,
                  kernel_size=3, activation=tf.nn.relu, drop_rate=0.0,
                  se_ratio=None):
@@ -169,7 +185,7 @@ def resnet_block(tensor, filters, strides, training, weight_decay=0.0002,
       kernel_regularizer=tf.contrib.layers.l2_regularizer(weight_decay))
 
     if se_ratio is not None:
-      tensor = ops.squeeze_and_excite(tensor, se_ratio)
+      tensor = squeeze_and_excite(tensor, se_ratio)
 
     in_dims = original.shape[-1].value
     if in_dims != filters or strides > 1:
