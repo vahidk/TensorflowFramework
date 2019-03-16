@@ -16,21 +16,25 @@ class AbstractDataset(object):
     return {}
 
   @abc.abstractmethod
-  def prepare(self):
+  def prepare(self, params):
     """This function will be called once to prepare the dataset."""
     pass
 
 
   @abc.abstractmethod
-  def read(self, mode):
+  def read(self, split, params):
     """Create an instance of the dataset object."""
     pass
 
 
   @abc.abstractmethod
-  def parse(self, mode, image, label):
+  def parse(self, mode, params, *args):
     """Parse input record to features and labels."""
     pass
+
+  def process(self, mode, params, features, labels):
+    """Parse input record to features and labels."""
+    return features, labels
 
 
 class DatasetFactory(object):

@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import PIL
 import tensorflow as tf
+
+from common import image_utils
 from common import ops
 
 
@@ -33,18 +35,24 @@ def labeled_face(images, labels, predictions, max_outputs=3,
     ax = fig.add_subplot(111)
     if flip_vertical:
       image = image[::-1,...]
-    ax.imshow(image)
+    ax.imshow(image.squeeze())
     w = image.shape[1]
     h = image.shape[0]
-    ax.plot(labels[:, 0], labels[:, 1], "b.")
-    ax.plot(predictions[:, 0], predictions[:, 1], "r.")
+    ax.plot(labels[:, 0], labels[:, 1], "b.", 
+            markersize=1, alpha=0.5)
+    ax.plot(predictions[:, 0], predictions[:, 1], "r.", 
+            markersize=1, alpha=0.5)
+    for i in range(labels.shape[0]):
+      ax.plot([predictions[i, 0], labels[i, 0]],
+              [predictions[i, 1], labels[i, 1]], 'r-', 
+              linewidth=0.5, alpha=0.5)
     fig.canvas.draw()
     buf = io.BytesIO()
     data = fig.savefig(buf, format="png")
     plt.close()
     buf.seek(0)
-    img = PIL.Image.open(buf)
-    return np.array(img.getdata()).reshape(img.size[0], img.size[1], -1)
+    img = image_utils.decode_image(buf)
+    return img
 
   def _visualize_faces(images, labels, predictions):
     outputs = []
@@ -80,8 +88,7 @@ def labeled_image(name, images, labels, max_outputs=3, flip_vertical=False,
     buf.seek(0)
 
     # Read the image and convert to numpy array
-    img = PIL.Image.open(buf)
-    return np.array(img.getdata()).reshape(img.size[0], img.size[1], -1)
+    return image_utils.decode_image(buf)
 
   def _visualize_images(images, labels):
     # Only display the given number of examples in the batch

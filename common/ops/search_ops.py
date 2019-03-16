@@ -62,6 +62,6 @@ def rnn_beam_search(update_fn, initial_state, sequence_length, beam_width,
                            tf.expand_dims(ids, axis=2)], axis=2)
 
       mask = (gather_ops.batch_gather(mask, beam_ids) *
-              tf.to_float(tf.not_equal(ids, end_token_id)))
+              tf.cast(tf.not_equal(ids, end_token_id), tf.float32))
 
   return sel_ids, sel_sum_logprobs

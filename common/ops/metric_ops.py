@@ -5,6 +5,9 @@ from __future__ import division
 from __future__ import print_function
 
 import tensorflow as tf
+import numpy as np
+
+from common.ops import shape_ops
 
 
 def interocular_ratio(labels, predictions, left_eye, right_eye, name=None):
@@ -20,7 +23,7 @@ def interocular_ratio(labels, predictions, left_eye, right_eye, name=None):
 
 def top_k_error(labels, predictions, k, name=None):
   with tf.name_scope(name, default_name="top_k_error"):
-    labels = tf.expand_dims(tf.to_int32(labels), axis=-1)
+    labels = tf.expand_dims(tf.cast(labels, tf.int32), axis=-1)
     _, top_k = tf.nn.top_k(predictions, k=k)
-    in_top_k = tf.reduce_mean(tf.to_float(tf.equal(top_k, labels)), -1)
+    in_top_k = tf.reduce_mean(tf.cast(tf.equal(top_k, labels), tf.float32), -1)
     return 1 - in_top_k

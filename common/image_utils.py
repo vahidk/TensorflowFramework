@@ -9,48 +9,94 @@ import io
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL
+import PIL.ExifTags
 import scipy.ndimage as ndimage
 import tensorflow as tf
 
 
 face_cascade = cv2.CascadeClassifier(
-  "../app/Avatar/data/models/haarcascade_frontalface_alt.xml")
+  "data/opencv/haarcascade_frontalface_alt.xml")
 
 
-def pad_or_crop_image(image, padding, mode):
-  """Pad or crop an annotated image."""
-  p_pad = [(max(p[0], 0), max(p[1], 0)) for p in padding]
-  n_pad = [(max(-p[0], 0), max(-p[1], 0)) for p in padding]
-  min_p = [p[0] for i, p in enumerate(n_pad)]
-  max_p = [image.shape[1-i]-p[1] for i, p in enumerate(n_pad)]
-  image = image[min_p[1]:max_p[1], min_p[0]:max_p[0]]
-  image = np.pad(image, [p_pad[1], p_pad[0], (0, 0)], mode)
-  return image
+def normalize_translation_and_scale(labels):
+  center = labels.mean(axis=-2, keepdims=True)
+  labels_c = labels - center
+  norm = np.linalg.norm(labels_c, axis=-1, keepdims=True)
+  scale = norm.mean(axis=-2, keepdims=True)
+  labels_cs = labels_c / scale
+  return labels_cs, center, scale
 
 
 def crop_image(image, labels, bbox):
   """Crop an annotated image."""
-  image_w = image.shape[1]
-  image_h = image.shape[0]
-  pad_x = (bbox[2] // 4) - bbox[0], (bbox[0] + bbox[2] * 5 // 4) - image_w
-  pad_y = (bbox[3] // 4) - bbox[1], (bbox[1] + bbox[3] * 5 // 4) - image_h
-  image = pad_or_crop_image(image, (pad_x, pad_y), "reflect")
-  labels = labels + np.array([[pad_x[0], pad_y[0]]])
+  image_size = np.array([image.shape[1], image.shape[0]])
+  bbox = np.array(bbox, dtype=np.int32)
+  tl = bbox[0:2]
+  br = bbox[0:2] + bbox[2:4]
+  if np.any(tl < 0) or np.any(br > image_size - 1):
+    pad = np.maximum(
+      np.maximum(-tl, 0),
+      np.maximum(br - image_size + 1, 0))
+    image = np.pad(image, ((pad[1], pad[1]), 
+                           (pad[0], pad[0]), 
+                           (0, 0)), "constant")
+    labels += pad[np.newaxis, :]
+    tl += pad
+    br += pad
+  image = image[tl[1]:br[1], tl[0]:br[0], :]
+  labels -= tl[np.newaxis, :]
   return image, labels
+
+
+def compact_crop(image, labels, margin=0):
+  image = np.array(image)
+  labels = np.array(labels).astype(np.int32)
+  minimum = np.amin(labels, axis=0)
+  maximum = np.amax(labels, axis=0)
+  center = ((minimum + maximum) / 2).astype(np.int32)
+  half_size = np.amax((1 + margin) * (maximum - minimum) / 2).astype(np.int32)
+  tl = center - half_size
+  bbox = tl[0], tl[1], half_size * 2, half_size * 2
+  image, labels = crop_image(image, labels, bbox)
+  return image, labels
+
+
+def rotate_landmarks(labels, center, angle):
+  labels = np.array(labels, dtype=np.float32)
+  center = np.array(center, dtype=np.float32)
+  transform = np.array([
+    [np.cos(angle), -np.sin(angle)],
+    [np.sin(angle), np.cos(angle)]])
+  labels -= center[np.newaxis]
+  labels = np.dot(labels, transform)
+  labels += center[np.newaxis]
+  return labels
+
+
+def rotate_image(image, labels, angle):
+  h, w = image.shape[0], image.shape[1]
+  image = ndimage.rotate(image, np.degrees(angle), reshape=False)
+  labels = rotate_landmarks(labels, [w / 2, h / 2], angle)
+  return image, labels
+
+
+def align_to_shape(image, labels, target, extend=1.0, rotate=False):
+  image = np.array(image)
+  labels = np.array(labels).astype(np.float32)
+  target = np.array(target).astype(np.float32)
+  m, _ = cv2.estimateAffinePartial2D(labels, target)
+  image_t = cv2.warpAffine(image, m, (128, 128))
+  labels_t = np.dot(labels, m[:,:2].T) + m[np.newaxis,:,2]
+  return image_t, labels_t
 
 
 def scale_image(image, labels, size):
   """Scale an annotated image."""
-  zoom = np.array([size, size]) / np.array([image.shape[0], image.shape[1]])
-  image = ndimage.interpolation.zoom(image, [zoom[0], zoom[1], 1])
+  image = PIL.Image.fromarray(image)
+  zoom = np.array([size, size], dtype=np.float32) / np.array(image.size, np.float32)
+  image = image.resize([size, size], resample=PIL.Image.ANTIALIAS)
+  image = np.array(image)
   labels = labels * zoom
-  return image, labels
-
-
-def crop_and_scale_image(image, labels, bbox, size):
-  """Crop and scale an annotated image."""
-  image, labels = crop_image(image, labels, bbox)
-  image, labels = scale_image(image, labels, size)
   return image, labels
 
 
@@ -95,12 +141,26 @@ def encode_image(data, format="png"):
   return buf.getvalue()
 
 
-def decode_image(data):
+def decode_image(fp, force_rgb=True):
   """Decode the given image to a numpy array."""
-  buf = io.BytesIO(data)
-  im = PIL.Image.open(buf)
-  data = np.array(im.getdata()).reshape([im.height, im.width, -1])
-  return data
+  im = PIL.Image.open(fp)
+
+  # correct rotation
+  orientation_key = 0x0112
+  if hasattr(im, "_getexif") and im._getexif():
+    orientation = im._getexif().get(orientation_key, 0)
+    if orientation == 3:
+      im = im.rotate(180, expand=True)
+    elif orientation == 6:
+      im = im.rotate(270, expand=True)
+    elif orientation == 8:
+      im = im.rotate(90, expand=True)
+
+  if force_rgb:
+    im = im.convert(mode='RGB')
+
+  im = np.array(im)
+  return im
 
 
 def visualize(image, labels):

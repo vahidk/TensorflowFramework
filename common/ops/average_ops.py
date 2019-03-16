@@ -7,28 +7,36 @@ from __future__ import print_function
 import tensorflow as tf
 
 
-def moving_average(tensor, training=False, name=None):
+class MovingAverage(tf.keras.layers.Layer):
   """Computes moving average of the given tensor."""
-  with tf.variable_scope(name, default_name="moving_average"):
-    sum_var = tf.get_variable(
-      "value", shape=tensor.shape[1:], dtype=tf.float32,
+  def __init__(self, **kwargs):
+    super(MovingAverage, self).__init__(**kwargs)
+   
+  def build(self, input_shape):
+    self.sum_var = self.add_variable(
+      name="value", shape=input_shape[1:], dtype=tf.float32,
       initializer=tf.zeros_initializer(),
       trainable=False)
-    count_var = tf.get_variable("count", shape=[], dtype=tf.float32,
+    self.count_var = self.add_variable(
+      name="count", shape=input_shape[1:], dtype=tf.float32,
       initializer=tf.zeros_initializer(),
       trainable=False)
+    super(MovingAverage, self).build(input_shape)
+
+  def call(self, tensor, weights=None, training=False):
+    if weights is None:
+      sum = self.sum_var + tf.reduce_sum(tensor, axis=0)
+      count = self.count_var + tf.cast(tf.shape(tensor)[0], tf.float32)
+    else:
+      sum = self.sum_var + tf.reduce_sum(tensor * weights, axis=0)
+      count = self.count_var + tf.reduce_sum(weights, axis=0)      
 
     if training:
-      sum = sum_var + tf.reduce_sum(tensor, axis=0)
-      count = count_var + tf.to_float(tf.shape(tensor)[0])
-      mean = sum / count
+      self.add_update(tf.assign(self.sum_var, sum))
+      self.add_update(tf.assign(self.count_var, count))
+      with tf.control_dependencies(self.updates):
+        mean = self.sum_var / self.count_var
+    else:
+      mean = self.sum_var / self.count_var
 
-      update_sum = tf.assign(sum_var, sum)
-      update_count = tf.assign(count_var, count)
-      tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update_sum)
-      tf.add_to_collection(tf.GraphKeys.UPDATE_OPS, update_count)
-
-      return mean
-
-    mean = sum_var / count_var
     return mean

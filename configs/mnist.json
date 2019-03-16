@@ -1,0 +1,4 @@
+{
+  "dataset": "mnist",
+  "model": "alexnet"
+}

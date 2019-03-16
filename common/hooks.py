@@ -4,8 +4,13 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import glob
+import os
 import numpy as np
+import shutil
 import tensorflow as tf
+
+from common import misc_utils
 
 
 class ExamplesPerSecondHook(tf.train.SessionRunHook):
@@ -61,7 +66,7 @@ class LoggingTensorHook(tf.train.SessionRunHook):
   """Hook to print batch of tensors."""
 
   def __init__(self, collection, every_n_iter=None, every_n_secs=None,
-               batch=False, first_k=3):
+               batch=False, first_k=None):
     """Initializes a `LoggingTensorHook`."""
     self._collection = collection
     self._batch = batch
@@ -99,13 +104,15 @@ class LoggingTensorHook(tf.train.SessionRunHook):
     if not tensor_values:
       return
     for k, v in tensor_values.items():
-      tf.logging.info("%s: %s", k, np.array_str(v))
+      tf.logging.info("{0}: {1}".format(k, v))
 
   def _batch_print(self, tensor_values):
     if not tensor_values:
       return
     batch_size = list(tensor_values.values())[0].shape[0]
-    for i in range(min(self._first_k, batch_size)):
+    if self._first_k is not None:
+      batch_size = min(self._first_k, batch_size)
+    for i in range(batch_size):
       for k, v in tensor_values.items():
         tf.logging.info("{0}: {1}".format(k, v[i]))
 
@@ -162,3 +169,78 @@ class SummarySaverHook(tf.train.SessionRunHook):
   def end(self, session=None):
     if self._summary_writer:
       self._summary_writer.flush()
+
+
+class CallAfterSaveListener(tf.train.CheckpointSaverListener):
+  def __init__(self, callback, delay_steps=10):
+    self._callback = callback
+    self._delay_steps = delay_steps
+
+  def after_save(self, session, global_step_value):
+    if global_step_value > self._delay_steps:
+      self._callback()
+    return False
+
+
+class BestCheckpointKeeper(tf.train.CheckpointSaverListener):
+
+  def __init__(self, 
+               model_dir,
+               eval_fn, 
+               eval_set="eval", 
+               eval_metric="loss", 
+               compare_fn="less", 
+               delay_steps=10):
+    self._model_dir = model_dir
+    self._eval_fn = eval_fn
+    self._delay_steps = delay_steps
+    self._eval_set = eval_set
+    self._eval_metric = eval_metric
+    self._compare_fn = compare_fn
+    self._best_eval_result = {}
+
+  def after_save(self, session, global_step_value):
+    if global_step_value > self._delay_steps:
+      self._eval_and_save()
+    return False
+
+  def _eval_and_save(self):
+    results = self._eval_fn()
+    if self._result_is_best(results):
+      output_dir = os.path.join(self._model_dir, 'best')
+      if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+      checkpoint_path = tf.train.latest_checkpoint(self._model_dir)
+      print("Saving the new best checkpoint:", checkpoint_path)
+      for path in glob.glob(checkpoint_path + "*"):
+        shutil.copy(path, output_dir)
+      results_path = os.path.join(
+        output_dir, os.path.basename(checkpoint_path) + "_results.json")
+      with open(results_path, "w") as f:
+        f.write(misc_utils.serialize_json(results))
+
+  def _result_is_best(self, current_eval_result):
+    if (not self._eval_set in current_eval_result):
+      print(self._eval_set, "doesn't exist")
+      return False
+
+    if (not self._eval_metric in current_eval_result[self._eval_set]):
+      print(self._eval_metric, "doesn't exist")
+      return False
+
+    if not self._best_eval_result:
+      self._best_eval_result = current_eval_result
+      return True
+    
+    current_val = current_eval_result[self._eval_set][self._eval_metric]
+    best_val = self._best_eval_result[self._eval_set][self._eval_metric]
+
+    pred = {
+      "less": current_val < best_val,
+      "greater": current_val > best_val
+    }[self._compare_fn]
+
+    if pred:
+      self._best_eval_result = current_eval_result
+
+    return pred

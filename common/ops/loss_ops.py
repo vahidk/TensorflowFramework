@@ -6,11 +6,25 @@ from __future__ import print_function
 
 import tensorflow as tf
 
+from common.ops import activation_ops
 
-def softmax_entropy(logits, dim=-1):
+
+def softmax_entropy(logits, dims=-1):
   """Softmax entropy from logits."""
-  plogp = tf.nn.softmax(logits, dim) * tf.nn.log_softmax(logits, dim)
-  return -tf.reduce_sum(plogp, dim)
+  plogp = activation_ops.softmax(logits, dims) * activation_ops.log_softmax(logits, dims)
+  return -tf.reduce_sum(plogp, dims)
+
+
+def softmax_cross_entropy(labels, logits, dims=-1):
+  """Softmax entropy from logits."""
+  plogp = labels * activation_ops.log_softmax(logits, dims)
+  return -tf.reduce_sum(plogp, dims)
+
+
+def softmax_kl_divergence(labels, logits, dims=-1, epsilon=1e-6):
+  """Softmax entropy from logits."""
+  plogp = labels * (tf.log(labels) - activation_ops.log_softmax(logits, dims))
+  return tf.reduce_sum(plogp, dims)
 
 
 def gaussian_kl(q, p=(0., 0.)):

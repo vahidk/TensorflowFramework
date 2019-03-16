@@ -9,43 +9,65 @@ import numpy as np
 import tensorflow as tf
 
 
-def exponential_decay(learning_rate, 
-                      warmup_steps=100, 
-                      constant_steps=20000,
+def create_optimizer(params):
+  return {
+    "Adagrad": tf.train.AdagradOptimizer,
+    "Adam": tf.train.AdamOptimizer,
+    "Ftrl": tf.train.FtrlOptimizer,
+    "Momentum": lambda lr: tf.train.MomentumOptimizer(
+      lr, params.momentum),
+    "RMSProp": tf.train.RMSPropOptimizer,
+    "SGD": tf.train.GradientDescentOptimizer,
+  }[params.optimizer](params.learning_rate)
+
+
+def exponential_decay(learning_rate,
+                      step,
                       decay_steps=20000,
                       decay_rate=0.5):
   """Exponential decay."""
-  step = tf.to_float(tf.train.get_or_create_global_step())
-
-  if warmup_steps:
-    learning_rate *= tf.minimum(1., (step + 1.0) / warmup_steps)
-    step = tf.maximum(0., step - warmup_steps)
-
-  if constant_steps:
-    step = tf.maximum(0., step - constant_steps)
-
-  if decay_steps:
-    learning_rate *= decay_rate ** (step // decay_steps)
-
+  learning_rate *= decay_rate ** (step // decay_steps)
   return learning_rate
 
 
 def cyclic_decay(learning_rate, 
-                 min_learning_rate=1e-4,
-                 cycle_length=1000,
-                 decay_steps=20000,
-                 decay_rate=0.5):
-  """Cyclic learning rate."""
-  step = tf.to_float(tf.train.get_or_create_global_step())
-
-  decay = decay_rate ** (step // decay_steps)
-  min_learning_rate = min_learning_rate * decay
-  max_learning_rate = learning_rate * decay
-
-  cycle = tf.sin(step * 2 * 3.141592 / cycle_length)
-  learning_rate = ((max_learning_rate - min_learning_rate) * (cycle + 1) * 0.5 + 
+                 step,
+                 decay_steps=1000,
+                 decay_rate=0.1):
+  """Cyclic decay."""
+  min_learning_rate = learning_rate * decay_rate
+  cycle = tf.cos(tf.mod(step * np.pi / decay_steps, np.pi)) * 0.5 + 0.5
+  learning_rate = ((learning_rate - min_learning_rate) * cycle + 
                     min_learning_rate)
+  return learning_rate
 
+
+def get_learning_rate(params):
+  step = tf.cast(tf.train.get_or_create_global_step(), tf.float32)
+
+  learning_rate = params.learning_rate
+
+  if params.warmup_steps:
+    learning_rate *= tf.minimum(1., (step + 1.0) / params.warmup_steps)
+    step = tf.maximum(0., step - params.warmup_steps)
+
+  if params.constant_steps:
+    step = tf.maximum(0., step - params.constant_steps)
+
+  if params.exponential_decay_rate < 1:
+    learning_rate = exponential_decay(
+      learning_rate=learning_rate, 
+      step=step, 
+      decay_steps=params.exponential_decay_steps, 
+      decay_rate=params.exponential_decay_rate)
+  
+  if params.cycle_decay_rate < 1:
+    learning_rate = cyclic_decay(
+      learning_rate=learning_rate, 
+      step=step,
+      decay_steps=params.cycle_decay_steps,
+      decay_rate=params.cycle_decay_rate)
+  
   return learning_rate
 
 
@@ -59,17 +81,6 @@ def average_gradients(tower_grads):
     average_grads.append((grad, v))
   return average_grads
 
-
-def stage_tensors(tensors, capacity=5):
-  """Buffer tensors."""
-  dtypes = [f.dtype for f in tensors.values()]
-  shapes = [f.shape for f in tensors.values()]
-  names = [f for f in tensors.keys()]
-  staging = tf.contrib.staging.StagingArea(
-    dtypes, shapes, names, capacity=capacity)
-  put_op = staging.put(tensors)
-  get_op = staging.get()
-  return put_op, get_op
 
 
 def make_parallel(model_fn, features, labels, mode, params, num_gpus):
@@ -112,29 +123,39 @@ def make_parallel(model_fn, features, labels, mode, params, num_gpus):
   return predictions, losses, reg_losses, update_ops, eval_metrics
 
 
-def make_model_fn(model_fn, num_gpus=None):
+def make_model_fn(model_fn, process_fn, num_gpus=None, gpu_id=None,
+                  weight_averaging_decay=None):
   """Build the model function."""
+  def _model_fn_wpp(features, labels, mode, params):
+    features, labels = process_fn(mode, params, features, labels)
+    return model_fn(features, labels, mode, params)
+
   def _model_fn(features, labels, mode, params):
     global_step = tf.train.get_or_create_global_step()
 
-    learning_rate = exponential_decay(
-      params.learning_rate, params.warmup_steps, params.constant_steps,
-      params.decay_steps, params.decay_rate)
+    learning_rate = get_learning_rate(params)
     tf.summary.scalar("learning_rate", learning_rate)
 
-    opt = tf.contrib.layers.OPTIMIZER_CLS_NAMES[params.optimizer](
-      learning_rate, params.momentum)
+    opt = create_optimizer(params)
 
     if num_gpus:
       predictions, losses, reg_losses, update_ops, eval_metrics = make_parallel(
-        model_fn, features, labels, mode, params, num_gpus)
+        _model_fn_wpp, features, labels, mode, params, num_gpus)
     else:
-      predictions, loss, eval_metrics = model_fn(features, labels, mode, params)
+      if gpu_id is not None:
+        with tf.device(tf.DeviceSpec(device_type="GPU", device_index=gpu_id)):
+          predictions, loss, eval_metrics = _model_fn_wpp(features, labels, mode, params)
+      else:
+        predictions, loss, eval_metrics = _model_fn_wpp(features, labels, mode, params)
       losses = [loss]
       reg_losses = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
       update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
     loss = None
+
+    if weight_averaging_decay is not None:
+      ema = tf.train.ExponentialMovingAverage(
+        decay=weight_averaging_decay)
 
     if losses:
       loss = tf.add_n(losses) / len(losses)
@@ -151,11 +172,19 @@ def make_model_fn(model_fn, num_gpus=None):
           global_step=global_step,
           colocate_gradients_with_ops=True)
 
+      if weight_averaging_decay is not None:
+        with tf.control_dependencies([train_op]):
+          train_op = ema.apply(tf.trainable_variables())
+
       opts = tf.profiler.ProfileOptionBuilder().trainable_variables_parameter()
       stats = tf.profiler.profile(tf.get_default_graph(), options=opts)
       print("Total parameters:", stats.total_parameters)
     else:
       train_op = None
+
+      if weight_averaging_decay is not None:
+        saver = tf.train.Saver(ema.variables_to_restore())
+        tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
 
     return tf.estimator.EstimatorSpec(
       mode=mode,

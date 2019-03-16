@@ -8,7 +8,7 @@ import multiprocessing as mp
 import tensorflow as tf
 
 
-def parallel_record_writer(iterator, create_example, path, num_threads=6):
+def record_writer(iterator, create_example, path, num_threads=8):
   """Create a RecordIO file from data for efficient reading."""
   if num_threads == 1:
     writer = tf.python_io.TFRecordWriter(path)
@@ -58,32 +58,30 @@ def parallel_record_writer(iterator, create_example, path, num_threads=6):
   writer.close()
 
 
-def make_input_fn(dataset, mode, params, 
+def make_input_fn(dataset, splits, mode, params, 
                   num_epochs=None, 
                   shuffle_batches=10,
                   num_threads=8,
-                  initializable_iterator=False):
+                  prefetch_buffer_size=1):
   """Make input function."""
   def _parse(*args):
-    return dataset.parse(mode, *args)
+    return dataset.parse(mode, params, *args)
+
   def _input_fn():
     with tf.device(tf.DeviceSpec(device_type="CPU", device_index=0)):
-      d = dataset.read(mode)
-      d = d.cache()
-      batch_size = params.batch_size
+      if isinstance(splits, dict):
+        ds = [dataset.read(split, params) for split in splits.keys()]
+        d = tf.data.experimental.sample_from_datasets(
+          ds, list(splits.values()))
+      else:
+        d = dataset.read(splits, params)
+      d = d.map(_parse, num_parallel_calls=num_threads)
       if mode == tf.estimator.ModeKeys.TRAIN:
         d = d.repeat(num_epochs)
         d = d.shuffle(params.batch_size * shuffle_batches)
-      elif hasattr(params, "eval_batch_size"):
-        batch_size = params.eval_batch_size
-      d = d.map(_parse, num_parallel_calls=num_threads)
-      d = d.batch(batch_size)
-      if initializable_iterator:
-        it = d.make_initializable_iterator()
-        features, labels = it.get_next()
-        return it.initializer, features, labels
-      else:
-        it = d.make_one_shot_iterator()
-        features, labels = it.get_next()
-        return features, labels
+      d = d.batch(params.batch_size)
+      d = d.prefetch(prefetch_buffer_size)
+      it = d.make_one_shot_iterator()
+      features, labels = it.get_next()
+      return features, labels
   return _input_fn

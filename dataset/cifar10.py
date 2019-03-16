@@ -14,6 +14,7 @@ import tarfile
 import tensorflow as tf
 
 from common import dataset
+from common import misc_utils
 
 REMOTE_URL = "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
 LOCAL_DIR = "data/cifar10/"
@@ -35,9 +36,19 @@ class Cifar10(dataset.AbstractDataset):
     }
 
   def prepare(self):
-    _download_data()
+    """Download the cifar dataset."""
+    if not os.path.exists(LOCAL_DIR):
+      os.makedirs(LOCAL_DIR)
+    if not os.path.exists(LOCAL_DIR + ARCHIVE_NAME):
+      print("Downloading...")
+      urllib.request.urlretrieve(REMOTE_URL, LOCAL_DIR + ARCHIVE_NAME)
+    if not os.path.exists(LOCAL_DIR + DATA_DIR):
+      print("Extracting files...")
+      tar = tarfile.open(LOCAL_DIR + ARCHIVE_NAME)
+      tar.extractall(LOCAL_DIR)
+      tar.close()
 
-  def read(self, mode):
+  def read(self, mode, params):
     """Create an instance of the dataset object."""
     batches = {
       tf.estimator.ModeKeys.TRAIN: TRAIN_BATCHES,
@@ -67,9 +78,9 @@ class Cifar10(dataset.AbstractDataset):
     return tf.data.Dataset.from_tensor_slices((all_images, all_labels))
 
 
-  def parse(self, mode, image, label):
+  def parse(self, mode, params, image, label):
     """Parse input record to features and labels."""
-    image = tf.to_float(image)
+    image = tf.cast(image, tf.float32)
     image = tf.reshape(image, [IMAGE_SIZE, IMAGE_SIZE, 3])
 
     if mode == tf.estimator.ModeKeys.TRAIN:
@@ -86,26 +97,13 @@ class Cifar10(dataset.AbstractDataset):
 dataset.DatasetFactory.register("cifar10", Cifar10)
 
 
-def _download_data():
-  """Download the cifar dataset."""
-  if not os.path.exists(LOCAL_DIR):
-    os.makedirs(LOCAL_DIR)
-  if not os.path.exists(LOCAL_DIR + ARCHIVE_NAME):
-    print("Downloading...")
-    urllib.request.urlretrieve(REMOTE_URL, LOCAL_DIR + ARCHIVE_NAME)
-  if not os.path.exists(LOCAL_DIR + DATA_DIR):
-    print("Extracting files...")
-    tar = tarfile.open(LOCAL_DIR + ARCHIVE_NAME)
-    tar.extractall(LOCAL_DIR)
-    tar.close()
-
-
 if __name__ == "__main__":
   if len(sys.argv) != 2:
     print("Usage: python dataset.cifar10 download")
     sys.exit(1)
 
+  d = Cifar10()
   if sys.argv[1] == "download":
-    _download_data()
+    d.prepare(misc_utils.Tuple(d.get_params()))
   else:
     print("Unknown command", sys.argv[1])

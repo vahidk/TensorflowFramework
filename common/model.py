@@ -16,6 +16,11 @@ class AbstractModel(object):
     return {}
 
   @abc.abstractmethod
+  def get_features(self):
+    """Return dictionary of feature names to placeholders."""
+    return {}
+
+  @abc.abstractmethod
   def model(self, features, labels, mode, params):
     """Main model class."""
     pass

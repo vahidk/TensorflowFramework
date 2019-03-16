@@ -11,9 +11,6 @@ from common import model
 from common import ops
 
 
-FLAGS = tf.flags.FLAGS
-
-
 class AlexNetModel(model.AbstractModel):
 
   def get_params(self):
@@ -21,6 +18,14 @@ class AlexNetModel(model.AbstractModel):
       "drop_rate": 0.5
     }
 
+  def get_features(self, params):
+    image_size = params.image_size
+    return {
+      "image": tf.placeholder(
+        dtype=tf.float32, 
+        shape=[None, image_size, image_size, 3], 
+        name="image")
+    }
 
   def model(self, features, labels, mode, params):
     """CNN classifier model."""
@@ -36,7 +41,7 @@ class AlexNetModel(model.AbstractModel):
       kernels=[3, 3, 3],
       pool_sizes=[2, 2, 2])
 
-    features = tf.contrib.layers.flatten(features)
+    features = tf.keras.layers.Flatten().apply(features)
 
     logits = ops.dense_layers(
       features, [512, params.num_classes],
@@ -53,11 +58,6 @@ class AlexNetModel(model.AbstractModel):
       "accuracy": tf.metrics.accuracy(labels, predictions),
       "top_1_error": tf.metrics.mean(ops.top_k_error(labels, logits, 1)),
     }
-
-    tf.add_to_collection(
-      "batch_logging", tf.identity(labels, name="labels"))
-    tf.add_to_collection(
-      "batch_logging", tf.identity(predictions, name="predictions"))
 
     return {"predictions": predictions}, loss, eval_metrics
 

@@ -1,4 +1,4 @@
-"""Image ops."""
+"""Initializer ops."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -31,7 +31,7 @@ class DiskInitializer(object):
     y = tf.cos(angle) * radius
     output = tf.stack([x, y], axis=self.axis)
     if self.mean:
-      output += mean
+      output += self.mean
     return output
 
   def get_config(self):

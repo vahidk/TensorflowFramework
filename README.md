@@ -14,7 +14,7 @@ pip install tensorflow numpy pillow matplotlib six
 ## Training
 To train an mnist classification model run:
 ```
-python -m trainer --model=alexnet --dataset=mnist
+python -m trainer --config=configs/mnist.json
 ```
 
 To visualize the training logs on Tensorboard run:
@@ -29,6 +29,3 @@ Current included datasets are:
 
 Bundled models include:
 - alexnet
-- allconv
-- resnet
-
