@@ -59,7 +59,7 @@ def gan_loss(x, gz, discriminator):
   dx = discriminator(x)
   with tf.variable_scope(tf.get_variable_scope(), reuse=True):
     dgz = discriminator(gz)
-  d_loss = -tf.reduce_mean(tf.log_sigmoid(dx) - tf.log_sigmoid(1 - dgz))
+  d_loss = -tf.reduce_mean(tf.log_sigmoid(dx) + tf.log_sigmoid(1 - dgz))
   g_loss = -tf.reduce_mean(tf.log_sigmoid(dgz))
   return d_loss, g_loss
 
